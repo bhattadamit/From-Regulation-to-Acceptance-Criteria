@@ -1,0 +1,1 @@
+You are a senior business analyst at a US bank. Write user stories with Gherkin acceptance criteria to implement Regulation E consumer liability for unauthorized transfers (12 CFR 1005.6) in our disputes platform.

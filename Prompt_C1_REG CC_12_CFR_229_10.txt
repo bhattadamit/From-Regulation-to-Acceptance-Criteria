@@ -1,0 +1,1 @@
+You are a senior business analyst at a US bank. Write user stories with Gherkin acceptance criteria to implement Regulation CC next-day availability (12 CFR 229.10) in our deposit hold engine.
