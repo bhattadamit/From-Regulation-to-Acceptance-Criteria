@@ -1,0 +1,73 @@
+file,model,run,cond,provision,words,scenarios
+CHGPT_Chatgpt 6_1_C1_REG CC_12_CFR_229_10.txt,ChatGPT 6,1,C1,229.10,5077,41
+CHGPT_Chatgpt 6_1_C1_REG E_12_CFR_1005_11.txt,ChatGPT 6,1,C1,1005.11,5749,70
+CHGPT_Chatgpt 6_1_C1_REG E_12_CFR_1005_6.txt,ChatGPT 6,1,C1,1005.6,6367,63
+CHGPT_Chatgpt 6_1_C2_REG CC_12_CFR_229_10_TEXT.txt,ChatGPT 6,1,C2,229.10,4446,28
+CHGPT_Chatgpt 6_1_C2_REG E_12_CFR_1005_11_TEXT.txt,ChatGPT 6,1,C2,1005.11,5380,104
+CHGPT_Chatgpt 6_1_C2_REG E_12_CFR_1005_6_TEXT.txt,ChatGPT 6,1,C2,1005.6,4724,43
+CHGPT_Chatgpt 6_2_C1_REG CC_12_CFR_229_10.txt,ChatGPT 6,2,C1,229.10,5164,45
+CHGPT_Chatgpt 6_2_C1_REG E_12_CFR_1005_11.txt,ChatGPT 6,2,C1,1005.11,7055,91
+CHGPT_Chatgpt 6_2_C1_REG E_12_CFR_1005_6.txt,ChatGPT 6,2,C1,1005.6,6423,64
+CHGPT_Chatgpt 6_2_C2_REG CC_12_CFR_229_10_TEXT.txt,ChatGPT 6,2,C2,229.10,4877,29
+CHGPT_Chatgpt 6_2_C2_REG E_12_CFR_1005_11_TEXT.txt,ChatGPT 6,2,C2,1005.11,5036,54
+CHGPT_Chatgpt 6_2_C2_REG E_12_CFR_1005_6_TEXT.txt,ChatGPT 6,2,C2,1005.6,3555,33
+CHGPT_Chatgpt 6_3_C1_REG CC_12_CFR_229_10.txt,ChatGPT 6,3,C1,229.10,4066,40
+CHGPT_Chatgpt 6_3_C1_REG E_12_CFR_1005_11.txt,ChatGPT 6,3,C1,1005.11,6632,70
+CHGPT_Chatgpt 6_3_C1_REG E_12_CFR_1005_6.txt,ChatGPT 6,3,C1,1005.6,6199,61
+CHGPT_Chatgpt 6_3_C2_REG CC_12_CFR_229_10_TEXT.txt,ChatGPT 6,3,C2,229.10,5443,28
+CHGPT_Chatgpt 6_3_C2_REG E_12_CFR_1005_11_TEXT.txt,ChatGPT 6,3,C2,1005.11,6035,69
+CHGPT_Chatgpt 6_3_C2_REG E_12_CFR_1005_6_TEXT.txt,ChatGPT 6,3,C2,1005.6,4067,40
+CHGPT_Chatgpt 6_4_C1_REG CC_12_CFR_229_10.txt,ChatGPT 6,4,C1,229.10,5401,54
+CHGPT_Chatgpt 6_4_C1_REG E_12_CFR_1005_11.txt,ChatGPT 6,4,C1,1005.11,7304,78
+CHGPT_Chatgpt 6_4_C1_REG E_12_CFR_1005_6.txt,ChatGPT 6,4,C1,1005.6,5244,47
+CHGPT_Chatgpt 6_4_C2_REG CC_12_CFR_229_10_TEXT.txt,ChatGPT 6,4,C2,229.10,4525,24
+CHGPT_Chatgpt 6_4_C2_REG E_12_CFR_1005_11_TEXT.txt,ChatGPT 6,4,C2,1005.11,5415,65
+CHGPT_Chatgpt 6_4_C2_REG E_12_CFR_1005_6_TEXT.txt,ChatGPT 6,4,C2,1005.6,3679,30
+Claude_Sonnet 5.5_1_C1_REG CC_12_CFR_229_10.txt,Claude Sonnet 5.5,1,C1,229.10,3641,41
+Claude_Sonnet 5.5_1_C1_REG E_12_CFR_1005_11.txt,Claude Sonnet 5.5,1,C1,1005.11,4487,59
+Claude_Sonnet 5.5_1_C1_REG E_12_CFR_1005_6.txt,Claude Sonnet 5.5,1,C1,1005.6,2972,34
+Claude_Sonnet 5.5_1_C2_REG CC_12_CFR_229_10_TEXT.txt,Claude Sonnet 5.5,1,C2,229.10,3287,37
+Claude_Sonnet 5.5_1_C2_REG E_12_CFR_1005_11_TEXT.txt,Claude Sonnet 5.5,1,C2,1005.11,3450,44
+Claude_Sonnet 5.5_1_C2_REG E_12_CFR_1005_6_TEXT.txt,Claude Sonnet 5.5,1,C2,1005.6,2588,31
+Claude_Sonnet 5.5_2_C1_REG CC_12_CFR_229_10.txt,Claude Sonnet 5.5,2,C1,229.10,3139,32
+Claude_Sonnet 5.5_2_C1_REG E_12_CFR_1005_11.txt,Claude Sonnet 5.5,2,C1,1005.11,4664,75
+Claude_Sonnet 5.5_2_C1_REG E_12_CFR_1005_6.txt,Claude Sonnet 5.5,2,C1,1005.6,3056,38
+Claude_Sonnet 5.5_2_C2_REG CC_12_CFR_229_10_TEXT.txt,Claude Sonnet 5.5,2,C2,229.10,2537,20
+Claude_Sonnet 5.5_2_C2_REG E_12_CFR_1005_11_TEXT.txt,Claude Sonnet 5.5,2,C2,1005.11,3507,53
+Claude_Sonnet 5.5_2_C2_REG E_12_CFR_1005_6_TEXT.txt,Claude Sonnet 5.5,2,C2,1005.6,2438,29
+Claude_Sonnet 5.5_3_C1_REG CC_12_CFR_229_10.txt,Claude Sonnet 5.5,3,C1,229.10,3667,38
+Claude_Sonnet 5.5_3_C1_REG E_12_CFR_1005_11.txt,Claude Sonnet 5.5,3,C1,1005.11,4529,63
+Claude_Sonnet 5.5_3_C1_REG E_12_CFR_1005_6.txt,Claude Sonnet 5.5,3,C1,1005.6,3707,47
+Claude_Sonnet 5.5_3_C2_REG CC_12_CFR_229_10_TEXT.txt,Claude Sonnet 5.5,3,C2,229.10,2537,20
+Claude_Sonnet 5.5_3_C2_REG E_12_CFR_1005_11_TEXT.txt,Claude Sonnet 5.5,3,C2,1005.11,2865,40
+Claude_Sonnet 5.5_3_C2_REG E_12_CFR_1005_6_TEXT.txt,Claude Sonnet 5.5,3,C2,1005.6,2333,31
+Claude_Sonnet 5.5_4_C1_REG CC_12_CFR_229_10.txt,Claude Sonnet 5.5,4,C1,229.10,2975,29
+Claude_Sonnet 5.5_4_C1_REG E_12_CFR_1005_11.txt,Claude Sonnet 5.5,4,C1,1005.11,5104,75
+Claude_Sonnet 5.5_4_C1_REG E_12_CFR_1005_6.txt,Claude Sonnet 5.5,4,C1,1005.6,3396,38
+Claude_Sonnet 5.5_4_C2_REG CC_12_CFR_229_10_TEXT.txt,Claude Sonnet 5.5,4,C2,229.10,3500,36
+Claude_Sonnet 5.5_4_C2_REG E_12_CFR_1005_11_TEXT.txt,Claude Sonnet 5.5,4,C2,1005.11,3696,52
+Claude_Sonnet 5.5_4_C2_REG E_12_CFR_1005_6_TEXT.txt,Claude Sonnet 5.5,4,C2,1005.6,2436,29
+Google_Hydrogen_1_C1_REG CC_12_CFR_229_10.txt,Google Gemini (Hydrogen),1,C1,229.10,2533,22
+Google_Hydrogen_1_C1_REG E_12_CFR_1005_11.txt,Google Gemini (Hydrogen),1,C1,1005.11,1585,10
+Google_Hydrogen_1_C1_REG E_12_CFR_1005_6.txt,Google Gemini (Hydrogen),1,C1,1005.6,1996,11
+Google_Hydrogen_1_C2_REG CC_12_CFR_229_10_TEXT.txt,Google Gemini (Hydrogen),1,C2,229.10,2310,18
+Google_Hydrogen_1_C2_REG E_12_CFR_1005_11_TEXT.txt,Google Gemini (Hydrogen),1,C2,1005.11,2162,21
+Google_Hydrogen_1_C2_REG E_12_CFR_1005_6_TEXT.txt,Google Gemini (Hydrogen),1,C2,1005.6,2543,24
+Google_Hydrogen_2_C1_REG CC_12_CFR_229_10.txt,Google Gemini (Hydrogen),2,C1,229.10,1673,16
+Google_Hydrogen_2_C1_REG E_12_CFR_1005_11.txt,Google Gemini (Hydrogen),2,C1,1005.11,1779,15
+Google_Hydrogen_2_C1_REG E_12_CFR_1005_6.txt,Google Gemini (Hydrogen),2,C1,1005.6,1673,11
+Google_Hydrogen_2_C2_REG CC_12_CFR_229_10_TEXT.txt,Google Gemini (Hydrogen),2,C2,229.10,2000,16
+Google_Hydrogen_2_C2_REG E_12_CFR_1005_11_TEXT.txt,Google Gemini (Hydrogen),2,C2,1005.11,2310,22
+Google_Hydrogen_2_C2_REG E_12_CFR_1005_6_TEXT.txt,Google Gemini (Hydrogen),2,C2,1005.6,2388,19
+Google_Hydrogen_3_C1_REG CC_12_CFR_229_10.txt,Google Gemini (Hydrogen),3,C1,229.10,1712,13
+Google_Hydrogen_3_C1_REG E_12_CFR_1005_11.txt,Google Gemini (Hydrogen),3,C1,1005.11,1577,12
+Google_Hydrogen_3_C1_REG E_12_CFR_1005_6.txt,Google Gemini (Hydrogen),3,C1,1005.6,1578,10
+Google_Hydrogen_3_C2_REG CC_12_CFR_229_10_TEXT.txt,Google Gemini (Hydrogen),3,C2,229.10,2551,18
+Google_Hydrogen_3_C2_REG E_12_CFR_1005_11_TEXT.txt,Google Gemini (Hydrogen),3,C2,1005.11,2398,22
+Google_Hydrogen_3_C2_REG E_12_CFR_1005_6_TEXT.txt,Google Gemini (Hydrogen),3,C2,1005.6,2426,23
+Google_Hydrogen_4_C1_REG CC_12_CFR_229_10.txt,Google Gemini (Hydrogen),4,C1,229.10,2070,11
+Google_Hydrogen_4_C1_REG E_12_CFR_1005_11.txt,Google Gemini (Hydrogen),4,C1,1005.11,1365,13
+Google_Hydrogen_4_C1_REG E_12_CFR_1005_6.txt,Google Gemini (Hydrogen),4,C1,1005.6,1827,11
+Google_Hydrogen_4_C2_REG CC_12_CFR_229_10_TEXT.txt,Google Gemini (Hydrogen),4,C2,229.10,2645,20
+Google_Hydrogen_4_C2_REG E_12_CFR_1005_11_TEXT.txt,Google Gemini (Hydrogen),4,C2,1005.11,2204,23
+Google_Hydrogen_4_C2_REG E_12_CFR_1005_6_TEXT.txt,Google Gemini (Hydrogen),4,C2,1005.6,2221,22

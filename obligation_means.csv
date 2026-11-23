@@ -1,0 +1,57 @@
+id,C1,C2,SCS,exc,modality,notice,cited,category,obligation,provision,exception
+C01,0.6666666666666666,0.9166666666666666,2,0,M,0,0,Availability,Cash in person: next business day,229.10,0
+C02,0.25,0.8333333333333334,2,0,M,0,0,Availability,Cash not in person: second business day,229.10,0
+C03,0.5,0.8333333333333334,3,0,M,0,0,Availability,Electronic payments: next business day after receipt,229.10,0
+C04,0.0,1.0,2,0,M,0,0,Scope,Receipt = finally collected funds plus account/amount information,229.10,0
+C05,0.625,0.8333333333333334,2,0,M,0,0,Availability,US Treasury checks to payee account: next business day,229.10,0
+C06,0.5,0.8333333333333334,3,0,M,0,0,Availability,"USPS money orders, in person: next business day",229.10,0
+C07,0.5,0.8333333333333334,3,0,M,0,0,Availability,"Federal Reserve Bank / FHLB checks, in person: next business day",229.10,0
+C08,0.25,0.625,6,0,M,0,0,Availability,"State/local government checks (same state, in person, slip): next business day",229.10,0
+C09,0.4166666666666667,0.8333333333333334,5,0,M,0,0,Availability,"Cashier's, certified, teller's checks (in person, slip): next business day",229.10,0
+C10,0.625,0.8333333333333334,4,0,M,0,0,Availability,"On-us checks, same state or check-processing region: next business day",229.10,0
+C11,0.9583333333333334,1.0,4,0,M,0,0,Availability,Lesser of $275 or aggregate other-check deposits: next business day,229.10,0
+C12,0.16666666666666666,0.8333333333333334,5,1,M,0,0,Availability,Qualifying checks not in person: second business day,229.10,1
+C13,0.4166666666666667,1.0,1,0,P,0,0,Scope,Bank may require special deposit slip,229.10,0
+C14,0.125,0.9166666666666666,2,0,M,1,0,Notice,"If required, provide slip or inform how; reasonably available",229.10,0
+L01,0.6666666666666666,1.0,2,0,P,0,0,Liability,Liability only if 1005.7(b)(1)-(3) disclosures given,1005.6,0
+L02,0.6666666666666666,1.0,1,0,M,0,0,Liability,Access device must be an accepted access device,1005.6,0
+L03,0.4166666666666667,1.0,1,0,M,0,0,Liability,Institution provided means to identify the consumer,1005.6,0
+L04,0.875,0.9583333333333334,3,0,M,0,0,Liability,Notice within 2 business days: lesser of $50 or prior transfers,1005.6,0
+L05,0.9166666666666666,0.9583333333333334,4,0,M,0,1,Liability,Later notice: lesser of $500 or ($50 tier + later preventable transfers),1005.6,0
+L06,0.625,1.0,3,0,M,0,0,Liability,Institution must establish later transfers were preventable,1005.6,0
+L07,0.7083333333333334,1.0,4,0,M,0,1,Liability,60-day statement rule: only later preventable transfers,1005.6,0
+L08,0.5833333333333334,0.8333333333333334,2,0,P,0,1,Liability,Access-device tiers also apply under the statement rule,1005.6,0
+L09,0.7083333333333334,1.0,3,1,M,0,0,Exception,Extend time limits for extenuating circumstances,1005.6,1
+L10,0.4166666666666667,1.0,1,0,M,0,0,Trigger,Notice given when reasonable steps taken,1005.6,0
+L11,0.5833333333333334,1.0,0,0,P,0,0,Trigger,"Notice in person, by telephone or in writing",1005.6,0
+L12,0.3333333333333333,1.0,1,0,M,0,0,Trigger,Written notice effective when mailed or sent,1005.6,0
+L13,0.16666666666666666,1.0,1,0,P,0,0,Trigger,Constructive notice,1005.6,0
+L14,0.75,1.0,2,1,M,0,0,Exception,Lower state-law or agreement liability prevails,1005.6,1
+O01,0.375,1.0,1,0,M,0,0,Scope,Recognise the seven covered error types,1005.11,0
+O02,0.3333333333333333,1.0,1,1,X,0,0,Scope,"Exclude balance inquiries, tax/record-keeping requests and duplicate-copy requests",1005.11,1
+O03,0.9583333333333334,0.9583333333333334,3,0,M,0,0,Trigger,Notice timely if received <=60 days after statement on which error first appears,1005.11,0
+O04,0.9166666666666666,1.0,4,0,M,0,1,Trigger,Accept oral as well as written notices of error,1005.11,0
+O05,0.2916666666666667,0.875,4,1,M,0,1,Trigger,"Notice identifies name/account and reason (type, date, amount where possible)",1005.11,1
+O06,0.875,0.9166666666666666,2,0,P,1,0,Trigger,Written confirmation: inform consumer and give address at oral notice; 10 business days,1005.11,0
+O07,0.08333333333333333,1.0,4,1,X,0,0,Trigger,Documentation-based notice timely <=60 days after information sent,1005.11,1
+O08,0.9583333333333334,1.0,3,1,M,0,1,Timing,Investigate and determine within 10 business days,1005.11,1
+O09,1.0,1.0,1,0,M,1,1,Notice,Report results within 3 business days of completion,1005.11,0
+O10,0.9166666666666666,1.0,2,0,M,0,1,Remedy,Correct error within 1 business day of determination,1005.11,0
+O11,0.75,0.8333333333333334,9,1,P,1,1,Timing,Up to 45 days only if provisional credit within 10 business days,1005.11,1
+O12,0.75,1.0,2,0,M,0,1,Remedy,Provisional credit includes applicable interest,1005.11,0
+O13,0.16666666666666666,1.0,5,1,P,0,0,Exception,May withhold up to $50 for unauthorized EFT (reasonable basis; 1005.6(a) met),1005.11,1
+O14,1.0,0.9166666666666666,5,1,X,0,0,Exception,No provisional credit if required written confirmation not received in 10 business days,1005.11,1
+O15,0.08333333333333333,1.0,3,1,X,0,0,Exception,No provisional credit for accounts subject to Regulation T,1005.11,1
+O16,0.875,1.0,2,0,M,1,1,Notice,Notify amount and date of provisional credit within 2 business days,1005.11,0
+O17,0.8333333333333334,1.0,1,0,M,0,1,Remedy,Give full use of provisionally credited funds,1005.11,0
+O18,0.75,1.0,3,0,M,1,1,Notice,Report results incl. notice that provisional credit is final,1005.11,0
+O19,0.75,1.0,6,1,X,0,0,Timing,20 business days for EFTs within 30 days of first deposit,1005.11,1
+O20,0.9166666666666666,1.0,5,1,X,0,0,Timing,90 days for EFTs not initiated within a state,1005.11,1
+O21,0.9166666666666666,1.0,5,1,X,0,0,Timing,90 days for point-of-sale debit card transactions,1005.11,1
+O22,0.6666666666666666,1.0,6,1,X,0,0,Timing,90 days for EFTs within 30 days of first deposit,1005.11,1
+O23,0.3333333333333333,0.9166666666666666,4,1,P,0,0,Scope,Own-records review suffices for third-party transfers without agreement,1005.11,1
+O24,0.875,0.9166666666666666,2,0,M,1,1,Notice,Written explanation of findings (no error / different error),1005.11,0
+O25,1.0,1.0,2,0,M,1,1,Notice,Note right to request documents; provide copies promptly,1005.11,0
+O26,0.875,1.0,1,0,M,1,1,Notice,Notify date and amount of debit of provisional credit,1005.11,0
+O27,0.7083333333333334,1.0,3,1,M,1,1,Notice,Notify 5-business-day honouring of items without overdraft fee,1005.11,1
+O28,0.2916666666666667,0.9583333333333334,4,1,X,0,0,Scope,"No further duty on reassertion, except after (a)(1)(vii) information",1005.11,1

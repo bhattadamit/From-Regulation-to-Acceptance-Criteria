@@ -1,0 +1,37 @@
+file,id,model,cond,run,auto_label,obligation,manual_label
+Google_Hydrogen_3_C2_REG E_12_CFR_1005_11_TEXT.txt,O06,Google Gemini (Hydrogen),C2,3,F,Written confirmation: inform consumer and give address at oral notice; 10 business days,F
+CHGPT_Chatgpt 6_2_C2_REG E_12_CFR_1005_11_TEXT.txt,O08,ChatGPT 6,C2,2,F,Investigate and determine within 10 business days,F
+Claude_Sonnet 5.5_3_C1_REG E_12_CFR_1005_11.txt,O25,Claude Sonnet 5.5,C1,3,F,Note right to request documents; provide copies promptly,F
+Google_Hydrogen_2_C2_REG E_12_CFR_1005_6_TEXT.txt,L12,Google Gemini (Hydrogen),C2,2,F,Written notice effective when mailed or sent,F
+Google_Hydrogen_2_C2_REG E_12_CFR_1005_11_TEXT.txt,O19,Google Gemini (Hydrogen),C2,2,F,20 business days for EFTs within 30 days of first deposit,F
+Google_Hydrogen_3_C2_REG E_12_CFR_1005_11_TEXT.txt,O10,Google Gemini (Hydrogen),C2,3,F,Correct error within 1 business day of determination,F
+CHGPT_Chatgpt 6_3_C2_REG E_12_CFR_1005_6_TEXT.txt,L14,ChatGPT 6,C2,3,F,Lower state-law or agreement liability prevails,F
+CHGPT_Chatgpt 6_2_C2_REG CC_12_CFR_229_10_TEXT.txt,C07,ChatGPT 6,C2,2,F,"Federal Reserve Bank / FHLB checks, in person: next business day",F
+Google_Hydrogen_3_C2_REG E_12_CFR_1005_11_TEXT.txt,O19,Google Gemini (Hydrogen),C2,3,F,20 business days for EFTs within 30 days of first deposit,F
+Google_Hydrogen_4_C2_REG E_12_CFR_1005_6_TEXT.txt,L13,Google Gemini (Hydrogen),C2,4,F,Constructive notice,F
+Google_Hydrogen_3_C1_REG E_12_CFR_1005_11.txt,O09,Google Gemini (Hydrogen),C1,3,F,Report results within 3 business days of completion,F
+CHGPT_Chatgpt 6_2_C2_REG CC_12_CFR_229_10_TEXT.txt,C08,ChatGPT 6,C2,2,F,"State/local government checks (same state, in person, slip): next business day",F
+Google_Hydrogen_3_C1_REG E_12_CFR_1005_6.txt,L11,Google Gemini (Hydrogen),C1,3,M,"Notice in person, by telephone or in writing",M
+CHGPT_Chatgpt 6_3_C1_REG E_12_CFR_1005_11.txt,O15,ChatGPT 6,C1,3,M,No provisional credit for accounts subject to Regulation T,M
+CHGPT_Chatgpt 6_3_C1_REG E_12_CFR_1005_11.txt,O19,ChatGPT 6,C1,3,M,20 business days for EFTs within 30 days of first deposit,P
+Claude_Sonnet 5.5_2_C1_REG CC_12_CFR_229_10.txt,C02,Claude Sonnet 5.5,C1,2,M,Cash not in person: second business day,M
+Google_Hydrogen_4_C1_REG CC_12_CFR_229_10.txt,C03,Google Gemini (Hydrogen),C1,4,M,Electronic payments: next business day after receipt,F
+Google_Hydrogen_2_C1_REG E_12_CFR_1005_6.txt,L06,Google Gemini (Hydrogen),C1,2,M,Institution must establish later transfers were preventable,M
+Google_Hydrogen_3_C2_REG CC_12_CFR_229_10_TEXT.txt,C09,Google Gemini (Hydrogen),C2,3,M,"Cashier's, certified, teller's checks (in person, slip): next business day",F
+Google_Hydrogen_3_C1_REG E_12_CFR_1005_6.txt,L10,Google Gemini (Hydrogen),C1,3,M,Notice given when reasonable steps taken,M
+Claude_Sonnet 5.5_2_C1_REG CC_12_CFR_229_10.txt,C14,Claude Sonnet 5.5,C1,2,M,"If required, provide slip or inform how; reasonably available",M
+CHGPT_Chatgpt 6_4_C1_REG CC_12_CFR_229_10.txt,C02,ChatGPT 6,C1,4,M,Cash not in person: second business day,P
+Google_Hydrogen_4_C1_REG E_12_CFR_1005_11.txt,O23,Google Gemini (Hydrogen),C1,4,M,Own-records review suffices for third-party transfers without agreement,M
+Google_Hydrogen_4_C1_REG E_12_CFR_1005_11.txt,O07,Google Gemini (Hydrogen),C1,4,M,Documentation-based notice timely <=60 days after information sent,M
+CHGPT_Chatgpt 6_2_C1_REG E_12_CFR_1005_11.txt,O01,ChatGPT 6,C1,2,P,Recognise the seven covered error types,P
+Google_Hydrogen_2_C1_REG E_12_CFR_1005_6.txt,L07,Google Gemini (Hydrogen),C1,2,D,60-day statement rule: only later preventable transfers,D
+CHGPT_Chatgpt 6_4_C1_REG CC_12_CFR_229_10.txt,C08,ChatGPT 6,C1,4,P,"State/local government checks (same state, in person, slip): next business day",P
+Claude_Sonnet 5.5_3_C1_REG E_12_CFR_1005_11.txt,O18,Claude Sonnet 5.5,C1,3,P,Report results incl. notice that provisional credit is final,P
+CHGPT_Chatgpt 6_3_C2_REG E_12_CFR_1005_11_TEXT.txt,O06,ChatGPT 6,C2,3,P,Written confirmation: inform consumer and give address at oral notice; 10 business days,P
+Google_Hydrogen_3_C1_REG E_12_CFR_1005_11.txt,O02,Google Gemini (Hydrogen),C1,3,P,"Exclude balance inquiries, tax/record-keeping requests and duplicate-copy requests",P
+Claude_Sonnet 5.5_4_C1_REG CC_12_CFR_229_10.txt,C09,Claude Sonnet 5.5,C1,4,P,"Cashier's, certified, teller's checks (in person, slip): next business day",P
+Claude_Sonnet 5.5_3_C2_REG E_12_CFR_1005_6_TEXT.txt,L04,Claude Sonnet 5.5,C2,3,P,Notice within 2 business days: lesser of $50 or prior transfers,F
+CHGPT_Chatgpt 6_2_C1_REG E_12_CFR_1005_11.txt,O28,ChatGPT 6,C1,2,P,"No further duty on reassertion, except after (a)(1)(vii) information",P
+Google_Hydrogen_2_C1_REG E_12_CFR_1005_11.txt,O18,Google Gemini (Hydrogen),C1,2,P,Report results incl. notice that provisional credit is final,M
+Google_Hydrogen_2_C1_REG E_12_CFR_1005_11.txt,O26,Google Gemini (Hydrogen),C1,2,P,Notify date and amount of debit of provisional credit,P
+Claude_Sonnet 5.5_2_C2_REG E_12_CFR_1005_11_TEXT.txt,O03,Claude Sonnet 5.5,C2,2,P,Notice timely if received <=60 days after statement on which error first appears,P
