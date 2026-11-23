@@ -1,0 +1,13 @@
+﻿Specification,C1 WC,C2 WC,Gain
+"Base case (partial = 0.5), frozen signatures",0.601,0.949,0.348
+Strict (partial = 0),0.551,0.938,0.387
+Lenient (partial = 1),0.652,0.961,0.310
+Calibration run only (run 1),0.628,0.979,0.351
+Held-out runs only (runs 2–4),0.592,0.939,0.347
+Excluding GPT-6,0.642,0.933,0.291
+Excluding Claude Sonnet 5.5,0.560,0.964,0.404
+Excluding Gemini 4 Hydrogen,0.602,0.951,0.349
+Excluding 1005.11,0.515,0.924,0.409
+Excluding 1005.6,0.601,0.938,0.337
+Excluding 229.10,0.659,0.977,0.318
+"Notation-tolerant signatures (""D + 1"", ""Next BD"")",0.603,0.976,0.374

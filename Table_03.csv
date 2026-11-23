@@ -1,0 +1,9 @@
+﻿Attribute,Symbol,Definition and coding rule
+Modality,—,M = mandatory duty; P = permission; X = exception or exemption
+Conditions,c,"Number of conjunctive conditions that must hold for the obligation to apply, including enumerated subparagraph prerequisites; deadlines and exceptions are not counted again"
+Temporal parameters,t,"Number of deadlines or periods (e.g., 10 business days, 45 days)"
+Monetary parameters,m,"Number of dollar amounts or caps (e.g., $50, $500, $275)"
+Exception,e,"1 if the obligation is, or carries, an exception or carve-out"
+Cross-reference,r,"1 if applying the obligation requires reading another identified paragraph, section or regulation (general references to state law or agreements excluded)"
+Notice duty,n,1 if the obligation requires a communication to the consumer
+Examiner-cited,—,"1 if the obligation maps to a 2025–2026 examiner-cited violation category [7,8]"

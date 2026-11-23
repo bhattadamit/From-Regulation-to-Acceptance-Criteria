@@ -1,0 +1,5 @@
+﻿Test,C1,C2
+"Spearman ρ, SCS vs coverage",0.07 (p = 0.622),−0.33 (p = 0.013)
+"Coverage, SCS ≤ 3 vs SCS > 3",0.609 vs 0.586,0.962 vs 0.925
+Exceptions vs other (Mann–Whitney),0.549 vs 0.626 (p = 0.493),0.963 vs 0.943 (p = 0.459)
+Notice duties vs other (Mann–Whitney),0.783 vs 0.562 (p = 0.021),0.958 vs 0.947 (p = 0.913)

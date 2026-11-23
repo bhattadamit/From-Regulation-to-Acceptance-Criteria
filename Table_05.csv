@@ -1,0 +1,8 @@
+﻿Factor,Levels and settings
+Models (vendor; interface),"GPT-6 (OpenAI; ChatGPT web app, model identified in-session as GPT-6); Claude Sonnet 5.5 (Anthropic; Claude web app, incognito chat); Gemini 4 Hydrogen (Google; Gemini web app, ""Hydrogen"" selected in the model picker)"
+Model evidence,Screenshots of each model selector or in-session model identification are included in the replication package
+Prompting condition,C1 title-only; C2 text-grounded (full eCFR section text in the same message)
+Provisions,12 CFR 1005.11; 12 CFR 1005.6; 12 CFR 229.10
+Repetitions,4 independent runs per model × condition × provision (72 outputs)
+Session controls,"New private/temporary session per run; memory, personalisation, custom instructions and web search off; fixed model (no automatic routing); no follow-up turns"
+Output handling,"Full response saved verbatim, including preamble and closing text; run log records model, date, run, condition, rule and file"

@@ -1,0 +1,10 @@
+﻿Attribute,Exact agreement,Statistic,Value
+Modality (M/P/X),88%,Cohen's κ,0.72
+Exception (0/1),91%,Cohen's κ,0.79
+Cross-reference (0/1),68%,Cohen's κ,0.34
+Notice duty (0/1),98%,Cohen's κ,0.94
+Conditions (count),70%,"ICC(2,1)",0.55
+Temporal parameters (count),89%,"ICC(2,1)",0.88
+Monetary parameters (count),100%,"ICC(2,1)",1.00
+Specification Complexity Score,50%,"ICC(2,1); Spearman ρ",0.64; 0.77
+Examiner-cited (Y/N),90%,Cohen's κ,0.80

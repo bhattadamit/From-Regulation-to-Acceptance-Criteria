@@ -1,0 +1,7 @@
+﻿Model,Cond.,Identical label across runs,Fleiss' κ,Mean words,Mean scenarios
+GPT-6,C1,54%,0.52,"5,890",60
+,C2,93%,0.36,"4,765",46
+Claude Sonnet 5.5,C1,39%,0.32,"3,778",47
+,C2,70%,0.12,"2,931",35
+Gemini 4 Hydrogen,C1,48%,0.48,"1,781",13
+,C2,79%,−0.03,"2,346",21

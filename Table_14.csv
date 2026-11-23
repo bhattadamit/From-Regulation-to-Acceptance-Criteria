@@ -1,0 +1,9 @@
+﻿Finding,Management action,Metric and suggested gate,Owner
+"Ungrounded output is about 60% complete, for every model",Prohibit title-only generation for regulatory stories; always ground on the current eCFR text,RWC ≥ 0.95 before backlog acceptance,Product owner and compliance
+"Scope, trigger and precondition obligations are lost first","Maintain an obligation inventory per provision with modality, exception and scope flags",OR = 1.00 for release; every scope and X-modality item traced,Compliance (inventory owner)
+Model ranking reverses with grounding,"Select and validate models on the grounded task actually used, not on general reputation",Per-model RWC on the inventory before adoption,Model risk management
+Outputs vary across runs,"Generate several drafts and merge, or re-generate until the inventory is covered",Union coverage across ≥ 3 runs; no single-draft sign-off,Business analysis
+Detachment and compression survive grounding,Require each condition inside the scenario it governs; lint feature files for orphan conditions,Zero detached conditions in review,Business analysis and QA
+Distortion is rare but severe,"Add distortion signatures for known simplifications (e.g., ""unlimited liability"")",DR = 0; any hit blocks merge,QA and legal
+Examiner-cited duties are mostly consumer notices,"Test notices operationally: timing, content, vendor templates",Notice SLA and content conformance in production,Operations and second line
+Rule text and models change,Re-run the audit on every rule change or model upgrade,No obligation lost versus prior version,Change management

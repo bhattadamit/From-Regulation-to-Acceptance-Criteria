@@ -1,0 +1,6 @@
+﻿Measure,Cited (n = 17),Uncited (n = 25),Test,p
+Mean SCS (Eq. 1),2.88,2.88,Mann–Whitney U = 206.0,0.876
+Consumer-notice duties,8,1,Fisher OR = 21.33,0.001
+Exception-bearing obligations,4,13,Fisher exact,0.109
+Mean C1 coverage,0.806,0.558,Mann–Whitney U = 320.5,0.006
+Mean C2 coverage,0.966,0.985,Mann–Whitney U = 192.0,0.507
