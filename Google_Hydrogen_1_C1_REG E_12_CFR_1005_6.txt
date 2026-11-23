@@ -1,0 +1,236 @@
+Implementing Regulation E consumer liability rules (**12 CFR 1005.6**) in a disputes platform requires breaking down the liability tiers based on two primary variables: **whether an access device (e.g., debit card) was lost or stolen**, and **when the consumer notified the bank** relative to the event or statement transmittal.
+
+These user stories are structured for an agile development team building the automated liability calculation engine within a banking disputes platform.
+
+---
+
+### Epic: Regulation E Consumer Liability Calculation Engine (12 CFR 1005.6)
+
+#### Story 1: Tier 1 Liability — Timely Notice of Lost or Stolen Access Device (2 Business Days)
+
+**As a** Disputes Operations Analyst,
+
+**I want** the system to cap consumer liability at the lesser of $50 or the amount of unauthorized transfers when a lost or stolen access device is reported within two business days of learning of the loss or theft,
+
+**So that** the bank complies with 12 CFR 1005.6(b)(1) and accurately calculates provisional credit and final settlement amounts.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Reg E Tier 1 Liability Calculation (Lost/Stolen Device <= 2 Business Days)
+
+  Background:
+    Given a dispute claim is filed for an unauthorized electronic fund transfer (EFT)
+    And the unauthorized EFT involved a lost or stolen access device (e.g., debit card)
+    And the bank has fulfilled all initial disclosure requirements under 12 CFR 1005.7
+
+  Scenario: Unauthorized transfers exceed $50 and notice is given within 2 business days
+    Given the consumer learned of the loss or theft on "2026-10-05" (Monday)
+    And the consumer notified the bank on "2026-10-07" (Wednesday)
+    And the total amount of unauthorized transfers prior to notice is "$400.00"
+    When the liability calculation engine runs
+    Then the maximum consumer liability must be calculated as "$50.00"
+    And the bank's liability (reimbursement amount) must be "$350.00"
+
+  Scenario: Unauthorized transfers are less than $50 and notice is given within 2 business days
+    Given the consumer learned of the loss or theft on "2026-10-05" (Monday)
+    And the consumer notified the bank on "2026-10-06" (Tuesday)
+    And the total amount of unauthorized transfers prior to notice is "$35.00"
+    When the liability calculation engine runs
+    Then the maximum consumer liability must be calculated as "$35.00"
+    And the bank's liability (reimbursement amount) must be "$0.00"
+
+  Scenario: Weekend and federal holiday exclusion in 2-business-day calculation
+    Given the consumer learned of the loss or theft on "2026-10-09" (Friday)
+    And "2026-10-12" (Monday) is a federal holiday (Columbus Day / Indigenous Peoples' Day)
+    And the consumer notified the bank on "2026-10-14" (Wednesday)
+    And the total amount of unauthorized transfers prior to notice is "$200.00"
+    When the liability calculation engine runs
+    Then the elapsed business days must be calculated as "2"
+    And the maximum consumer liability must be capped at "$50.00"
+
+```
+
+---
+
+#### Story 2: Tier 2 Liability — Delayed Notice of Lost or Stolen Access Device (Beyond 2 Business Days, Within 60 Days of Statement)
+
+**As a** Disputes Operations Analyst,
+
+**I want** the system to apply the tiered $500 liability cap when a consumer fails to report a lost or stolen access device within two business days,
+
+**So that** the consumer is only held liable for transfers that occurred after the two-business-day window and could have been prevented had timely notice been given, per 12 CFR 1005.6(b)(2).
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Reg E Tier 2 Liability Calculation (Lost/Stolen Device > 2 Business Days)
+
+  Background:
+    Given a dispute claim is filed for unauthorized EFTs involving a lost or stolen access device
+    And the consumer notified the bank more than 2 business days after learning of the loss/theft
+    And the consumer notified the bank within 60 calendar days of the periodic statement transmittal
+
+  Scenario: Transfers occur both within and after the 2-business-day window
+    Given the consumer learned of the card theft on "2026-10-01" (Thursday)
+    And the 2-business-day window expired at the end of "2026-10-05" (Monday)
+    And the consumer notified the bank on "2026-10-08" (Thursday)
+    And an unauthorized transfer of "$100.00" occurred on "2026-10-02" (within 2 business days)
+    And an unauthorized transfer of "$600.00" occurred on "2026-10-07" (after 2 business days, before notice)
+    When the liability calculation engine runs
+    Then Tier 1 liability for the "2026-10-02" transfer is calculated as "$50.00" (lesser of $50 or $100)
+    And Tier 2 liability for the "2026-10-07" transfer is calculated as "$450.00" ($500 overall cap minus $50 Tier 1)
+    And the total maximum consumer liability must be "$500.00"
+    And the bank's liability must be "$200.00" ($700 total unauthorized minus $500 consumer liability)
+
+  Scenario: Preventability check — Transfers occur after 2 business days, but total is under $500
+    Given the consumer learned of the card theft on "2026-10-01" (Thursday)
+    And the consumer notified the bank on "2026-10-08" (Thursday)
+    And an unauthorized transfer of "$30.00" occurred on "2026-10-02" (within 2 business days)
+    And an unauthorized transfer of "$150.00" occurred on "2026-10-07" (after 2 business days, before notice)
+    When the liability calculation engine runs
+    Then Tier 1 liability is calculated as "$30.00" (lesser of $50 or $30)
+    And Tier 2 liability is calculated as "$150.00" (amount that occurred after 2 business days)
+    And the total maximum consumer liability must be "$180.00"
+    And the bank's liability must be "$0.00"
+
+  Scenario: All unauthorized transfers occurred within the first 2 business days despite late reporting
+    Given the consumer learned of the card theft on "2026-10-01" (Thursday)
+    And the consumer notified the bank on "2026-10-08" (Thursday)
+    And an unauthorized transfer of "$300.00" occurred on "2026-10-02" (within 2 business days)
+    And "$0.00" in unauthorized transfers occurred after "2026-10-05"
+    When the liability calculation engine runs
+    Then Tier 1 liability is calculated as "$50.00"
+    And Tier 2 liability is calculated as "$0.00" (no transfers occurred after the 2-day window that could have been prevented)
+    And the total maximum consumer liability must be "$50.00"
+    And the bank's liability must be "$250.00"
+
+```
+
+---
+
+#### Story 3: Tier 3 Liability — Failure to Report Unauthorized Transfers Within 60 Calendar Days of Periodic Statement
+
+**As a** Disputes Operations Analyst,
+
+**I want** the system to assign unlimited consumer liability for unauthorized transfers occurring after the 60-calendar-day statement window expires,
+
+**So that** the bank is protected from losses that could have been prevented had the consumer reviewed their statement and notified the bank per 12 CFR 1005.6(b)(3).
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Reg E Tier 3 Liability Calculation (> 60 Calendar Days from Statement Transmittal)
+
+  Scenario: Unauthorized transfers occur both inside and outside the 60-day statement window (No lost/stolen device)
+    Given the unauthorized EFTs did NOT involve a lost or stolen access device (e.g., ACH debit or card-not-present skimming)
+    And the periodic statement showing the first unauthorized EFT was transmitted on "2026-08-01"
+    And the 60-calendar-day window expired on "2026-09-30"
+    And the consumer notified the bank on "2026-10-15"
+    And unauthorized transfer A for "$300.00" occurred on "2026-07-25" (reflected on the Aug 1 statement)
+    And unauthorized transfer B for "$500.00" occurred on "2026-09-15" (within 60 days of Aug 1 statement)
+    And unauthorized transfer C for "$1,200.00" occurred on "2026-10-05" (after 60-day window expired, prior to notice)
+    When the liability calculation engine runs
+    Then consumer liability for Transfer A ("$300.00") must be "$0.00" (reported within 60 days, no lost/stolen device)
+    And consumer liability for Transfer B ("$500.00") must be "$0.00" (occurred before 60-day window expired)
+    And consumer liability for Transfer C ("$1,200.00") must be "$1,200.00" (unlimited liability after 60 days)
+    And the bank's total liability must be "$800.00"
+
+  Scenario: Combined Tier 1/2 and Tier 3 (Lost/Stolen card unreported past 60 days)
+    Given the consumer's debit card was stolen on "2026-07-20" and the consumer was unaware of the theft
+    And the periodic statement showing a "$200.00" unauthorized transfer was transmitted on "2026-08-01"
+    And the 60-calendar-day window expired on "2026-09-30"
+    And a second unauthorized transfer of "$900.00" occurred on "2026-10-05"
+    And the consumer notified the bank on "2026-10-10"
+    When the liability calculation engine runs
+    Then consumer liability for the "$200.00" transfer (within 60 days) is capped at "$50.00" (Tier 1 applies as consumer had not yet learned of theft prior to statement)
+    And consumer liability for the "$900.00" transfer (after 60 days) is "$900.00" (Tier 3 unlimited liability)
+    And the total consumer liability must be "$950.00"
+
+```
+
+---
+
+#### Story 4: Non-Access Device Unauthorized Transfers (Zero Liability Within 60 Days)
+
+**As a** Disputes Operations Analyst,
+
+**I want** the system to apply $0 consumer liability for unauthorized transfers that do not involve a lost or stolen access device when reported within 60 calendar days of the periodic statement,
+
+**So that** consumers are not penalized under Tier 1 or Tier 2 rules for unauthorized ACH debits or compromised card numbers where the physical card remains in their possession (12 CFR 1005.6(b)(3)).
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Reg E Zero Liability for Non-Lost/Stolen Access Device Transfers
+
+  Scenario: Unauthorized ACH or Card-Not-Present (skimming) reported within 60 days of statement
+    Given a dispute claim is filed for unauthorized EFTs totaling "$1,500.00"
+    And the dispute intake flag "Access_Device_Lost_Or_Stolen" is set to "FALSE"
+    And the periodic statement reflecting the first unauthorized EFT was transmitted on "2026-10-01"
+    And the consumer notified the bank on "2026-11-15" (45 calendar days after statement transmittal)
+    When the liability calculation engine runs
+    Then Tier 1 ($50) and Tier 2 ($500) caps must NOT be applied
+    And the maximum consumer liability must be "$0.00"
+    And the bank's liability must be "$1,500.00"
+
+```
+
+---
+
+#### Story 5: Extenuating Circumstances Extension Override
+
+**As a** Senior Disputes Investigator,
+
+**I want** the ability to manually override the notification deadlines due to documented extenuating circumstances,
+
+**So that** the system recalculates consumer liability using a reasonable extended timeframe in compliance with 12 CFR 1005.6(b)(4).
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Reg E Extenuating Circumstances Extension
+
+  Scenario: Investigator applies extenuating circumstances for extended hospitalization
+    Given a dispute claim initially calculated "$500.00" in Tier 2 consumer liability because notice took 10 business days
+    And the consumer provided documentation of emergency hospitalization during that period
+    When the Senior Disputes Investigator selects "Extenuating Circumstances Approved"
+    And enters an "Adjusted Reasonable Notification Deadline" of "2026-10-15"
+    And enters a mandatory audit justification note
+    Then the liability calculation engine must re-evaluate the claim using "2026-10-15" as the timely notice threshold
+    And if the consumer notified the bank on or before "2026-10-15", recalculate consumer liability to Tier 1 (max "$50.00")
+    And log the override user ID, timestamp, previous liability, new liability, and justification in the compliance audit trail
+
+```
+
+---
+
+#### Story 6: Post-Notice Transfers Zero Liability Cutoff
+
+**As a** Disputes Operations Analyst,
+
+**I want** the system to automatically assign $0 consumer liability to any unauthorized transfer occurring after the exact timestamp the consumer notified the bank,
+
+**So that** the consumer is never held liable for transactions processed after they reported the loss, theft, or unauthorized activity (12 CFR 1005.6(b)(5)).
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Reg E Post-Notice Zero Liability Cutoff
+
+  Scenario: Unauthorized transfer settles after consumer notification timestamp
+    Given the consumer notified the bank of a stolen debit card on "2026-10-05" at "14:30:00 EST"
+    And an unauthorized transfer of "$250.00" was initiated on "2026-10-05" at "16:15:00 EST"
+    When the liability calculation engine runs
+    Then the "$250.00" transfer must be excluded from consumer liability calculations
+    And consumer liability for that specific transaction must be "$0.00"
+
+```
+
+---
+
+### Key Technical & Compliance Notes for Engineering
+
+* **Notification Definition (12 CFR 1005.6(b)(5)):** Notice is considered given when the consumer takes steps reasonably necessary to provide the bank with pertinent information, *whether or not a particular employee actually receives it*. If notice is mailed, it is effective upon **receipt** by the bank (or when the bank *should* have received it in the normal course of mail), whereas phone/in-app/branch notice is effective immediately upon submission.
+* **Negligence Prohibition (Official Interpretation 1005.6(b)-2):** Do not build fields that increase consumer liability for "consumer negligence" (e.g., writing a PIN on the card). Under Reg E, negligence cannot be used to impose greater liability than the statutory tiers.
+* **State Law & Card Network Rules:** Ensure the liability engine sits *before* a secondary "Card Network Zero Liability" (Visa/Mastercard) or "State Law Override" ruleset. Reg E sets the *maximum* consumer liability; network rules often reduce the consumer's out-of-pocket share to $0 even when Reg E allows $50 or $500.

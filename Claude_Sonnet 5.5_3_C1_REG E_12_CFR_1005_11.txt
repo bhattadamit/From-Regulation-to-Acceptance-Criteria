@@ -1,0 +1,632 @@
+# Regulation E Error Resolution (12 CFR 1005.11): User Stories and Gherkin Acceptance Criteria
+
+**Prepared as:** Business Analyst draft for Compliance, Product, and Engineering review
+**Date:** November 20, 2026
+
+## 1. Scope and Assumptions
+
+**In scope:** Notices of error on EFTs from consumer accounts: debit card (POS, ATM, online), prepaid, and ACH (including preauthorized debits and credits). This includes unauthorized transfers, incorrect amounts, omitted transfers, and computational or bookkeeping errors, as listed in 1005.11(a).
+
+**Out of scope or dependent:**
+- Credit card disputes are governed by Reg Z (12 CFR 1026.13), not Reg E. The platform must route them to the Reg Z workflow.
+- Consumer liability limits for unauthorized transfers (1005.6) and the network chargeback and representment rules (Visa, Mastercard, Nacha) are separate stories. The Reg E clock runs independently of network timelines.
+- Initial and annual error-resolution disclosures (1005.7, 1005.8) are owned by the disclosures team.
+
+**Key regulatory timelines the platform must enforce:**
+
+| Requirement | Standard | Extended (1005.11(c)(3)) |
+|---|---|---|
+| Consumer notice window | 60 days after the statement or information was sent | Extendable for good cause |
+| Investigate and determine | 10 business days | 45 calendar days |
+| Investigate and determine (new accounts, POS, foreign-initiated) | 20 business days | 90 calendar days |
+| Provisional credit | Within 10 business days of notice (20 for new accounts) | Required if investigation exceeds the standard period |
+| Notify consumer of provisional credit | 2 business days after crediting | |
+| Report results | 3 business days after completing the investigation | |
+| Correct a confirmed error | 1 business day after determining | |
+| Records retention | 2 years (1005.13) | |
+
+**Assumptions to confirm:**
+- "Business day" follows 1005.2(d): days the bank is open for substantially all business functions. The platform needs a configurable bank business-day calendar rather than a Federal Reserve one.
+- "New account" means an account open 30 days or less when the notice is received.
+- This draft reflects my understanding of the regulation and Supplement I (Official Interpretations). **Compliance and Legal must validate the final wording and any state-law overlays before build.**
+
+## 2. Actors
+
+Consumer (customer), Contact Center Agent, Disputes Analyst/Investigator, Disputes QA/Compliance Reviewer, Operations/Accounting, System (platform).
+
+## 3. Epics
+
+1. Intake and timeliness
+2. Clock management
+3. Provisional credit
+4. Investigation and determination
+5. Resolution and communications
+6. Records, controls, and reporting
+
+## EPIC 1: Intake and Timeliness
+
+### US-01: Capture a notice of error through any channel
+
+**As a** consumer, **I want** to report an error by phone, in branch, online, mobile, or in writing, **so that** my notice is recognized and the bank's clock starts no matter how I contact them.
+
+```gherkin
+Feature: Notice of error intake
+
+  Background:
+    Given a consumer account subject to Regulation E
+
+  Scenario: Oral notice is logged as a valid notice
+    Given a customer calls the contact center to report an unrecognized debit card transaction
+    When the agent creates a dispute case
+    Then the system records the notice received date and time as the case start
+    And the notice channel is stored as "Oral - Phone"
+    And the case is tagged "Reg E"
+    And the disputed transaction, amount, and customer-stated reason are captured
+
+  Scenario: Notice must enable the bank to identify the consumer and the error
+    Given a customer provides name, account identifier, and a description of the suspected error
+    When the agent completes intake
+    Then the system flags the notice as "Sufficient"
+    And the case proceeds to timeliness evaluation
+
+  Scenario: Incomplete notice does not defer the clock
+    Given a customer provides a description of the error but not the exact amount
+    When the agent saves the case
+    Then the notice is still logged as received
+    And the clock start remains the original notice received date
+    And the agent is prompted to obtain missing details during the investigation
+
+  Scenario: Credit card disputes are routed away from Reg E
+    Given the disputed transaction is on a credit card account
+    When the agent selects the transaction
+    Then the system routes the case to the Reg Z dispute workflow
+    And no Reg E clock is started
+```
+
+### US-02: Classify the error type
+
+**As a** disputes analyst, **I want** the case classified against the error types in 1005.11(a), **so that** the correct investigation path and documentation apply.
+
+```gherkin
+Feature: Error type classification
+
+  Scenario Outline: Classify covered error types
+    Given a Reg E dispute case is open
+    When the analyst selects "<error_type>"
+    Then the case is marked as a covered error under 1005.11(a)
+    And the "<workflow>" investigation checklist is assigned
+
+    Examples:
+      | error_type                                      | workflow             |
+      | Unauthorized EFT                                | Unauthorized         |
+      | Incorrect EFT to or from the account            | Incorrect amount     |
+      | Omission of an EFT from the periodic statement  | Omission             |
+      | Computational or bookkeeping error by the bank  | Bank error           |
+      | Receipt of incorrect amount from an ATM         | ATM discrepancy      |
+      | Request for documentation for tax or recordkeeping | Documentation request (see note) |
+
+  Scenario: Request for information that is not an error
+    Given the customer only asks for a copy of documentation, with no assertion of error
+    When the analyst classifies the case
+    Then the system marks the case "Information request - not a 1005.11 error"
+    And no error-resolution clock or provisional credit is created
+```
+
+*Note: Confirm with Compliance which routine inquiries, such as requests for documentation or clarification (Comment 11(a)), are excluded and how they are handled.*
+
+### US-03: Evaluate the 60-day notice window
+
+**As a** disputes analyst, **I want** the system to compare the notice date to the 60-day window, **so that** late notices are handled consistently and good-cause extensions are documented.
+
+```gherkin
+Feature: Timeliness of notice (1005.11(b)(1))
+
+  Scenario: Notice within 60 days of the statement
+    Given the periodic statement showing the transaction was sent on 2026-10-15
+    And the notice is received on 2026-11-20
+    When the system evaluates timeliness
+    Then the case is marked "Timely"
+    And the 60-day deadline of 2026-12-14 is stored
+
+  Scenario: Notice after 60 days
+    Given the periodic statement showing the transaction was sent on 2026-08-01
+    And the notice is received on 2026-11-20
+    When the system evaluates timeliness
+    Then the case is marked "Outside 60-day window"
+    And the analyst is prompted to record whether a good-cause extension applies
+
+  Scenario: Good-cause extension is granted
+    Given the notice is outside the 60-day window
+    And the customer reports a good reason such as extended hospitalization
+    When the analyst selects "Extend for good cause" and enters a justification
+    Then the case is treated as timely and the full Reg E clock applies
+    And the justification and approver are recorded
+
+  Scenario: Continued unauthorized transfers after the first statement
+    Given an unauthorized transfer appears on a later statement of a series of related unauthorized transfers
+    When the system evaluates timeliness
+    Then the 60-day period is measured from the statement the system is configured to use for that account
+    And the system flags the case for Compliance review of the "later transfers" rule
+```
+
+*Note: The 1005.6(b) liability rules and the "60 days from the first statement" treatment interact. Compliance should specify the exact rule set.*
+
+### US-04: Require written confirmation for oral notices, where the bank chooses to
+
+**As a** compliance officer, **I want** the bank to request written confirmation of oral notices and track the 10-business-day return window, **so that** the bank preserves its right to withhold provisional credit and to stop the clock when the confirmation is not received.
+
+```gherkin
+Feature: Written confirmation of oral notice (1005.11(b)(2))
+
+  Background:
+    Given bank policy requires written confirmation of oral notices
+
+  Scenario: Consumer is told about the written confirmation requirement
+    Given a customer gives oral notice of an error
+    When the case is created
+    Then the system records that the agent told the customer to confirm in writing within 10 business days
+    And the agent gave the address or electronic method for the confirmation
+    And a confirmation request letter or secure message is generated
+
+  Scenario: Written confirmation received in time
+    Given written confirmation is received on business day 6
+    When the system logs the confirmation
+    Then the confirmation status is "Received"
+    And the investigation and provisional credit timelines continue unchanged
+
+  Scenario: Written confirmation not received
+    Given the bank requested written confirmation
+    And 10 business days pass with no confirmation received
+    When the system runs the nightly clock process
+    Then the confirmation status is set to "Not received"
+    And the system marks the case as eligible to skip provisional credit
+    And the investigation continues until a determination is made
+
+  Scenario: Agent did not provide the required instruction
+    Given the agent did not record the confirmation instruction
+    When the system evaluates provisional credit eligibility
+    Then the case is NOT eligible to skip provisional credit on the basis of missing confirmation
+```
+
+## EPIC 2: Clock Management
+
+### US-05: Calculate and track investigation deadlines
+
+**As a** disputes manager, **I want** deadlines calculated automatically from the notice date using the bank's business-day calendar, **so that** no case misses a regulatory deadline.
+
+```gherkin
+Feature: Regulatory clock
+
+  Scenario Outline: Calculate the investigation deadline
+    Given a timely Reg E case with notice received on <notice_date>
+    And the account is "<account_type>"
+    When the system initializes the clock
+    Then the 10-business-day deadline (20 for new accounts) is <initial_deadline>
+    And the extended outer deadline is <extended_deadline>
+
+    Examples:
+      | notice_date | account_type                    | initial_deadline        | extended_deadline          |
+      | 2026-11-20  | Standard, ACH                   | 10 business days later  | 45 calendar days later     |
+      | 2026-11-20  | New account (30 days or less)   | 20 business days later  | 90 calendar days later     |
+      | 2026-11-20  | POS debit                       | 10 business days later  | 90 calendar days later     |
+      | 2026-11-20  | Foreign-initiated EFT           | 10 business days later  | 90 calendar days later     |
+
+  Scenario: Business-day calculation excludes bank non-business days
+    Given a notice is received on Friday 2026-11-20
+    And 2026-11-26 is a bank non-business day
+    When the system calculates business day 10
+    Then weekends and 2026-11-26 are excluded from the count
+
+  Scenario: Notice received after cutoff or on a non-business day
+    Given the bank's configured cutoff is not applicable to notice receipt
+    When a notice is received on a Saturday
+    Then the system records the actual receipt date
+    And business day counting begins on the next business day per the configured rule
+
+  Scenario: Aging alerts
+    Given a case is open
+    When business day 5, 8, and 9 are reached without a determination
+    Then alerts are sent to the assigned analyst and the team lead
+    And the case appears on the "At risk" dashboard
+```
+
+### US-06: Extend the investigation to 45 or 90 days
+
+**As a** disputes analyst, **I want** to extend an investigation beyond the initial period only when the regulatory conditions are satisfied, **so that** the bank stays compliant.
+
+```gherkin
+Feature: Extended investigation (1005.11(c)(2))
+
+  Scenario: Extension allowed when provisional credit has been given
+    Given a case has not been resolved by business day 10
+    And provisional credit was issued by business day 10
+    When the analyst selects "Extend investigation"
+    Then the system sets the deadline to 45 calendar days from notice
+    And the extension is recorded with the date, user, and reason
+
+  Scenario: Extension to 90 days for qualifying case types
+    Given the case is a POS debit, a foreign-initiated transfer, or a new-account notice
+    And provisional credit has been issued
+    When the analyst selects "Extend investigation"
+    Then the outer deadline is set to 90 calendar days from notice
+
+  Scenario: Extension blocked without provisional credit
+    Given a case has no provisional credit and the written-confirmation exception does not apply
+    When the analyst attempts to extend the investigation
+    Then the system blocks the extension
+    And displays "Provisional credit is required to extend the investigation"
+
+  Scenario: Extension allowed where provisional credit is excused
+    Given the bank requested written confirmation of an oral notice and it was not received in 10 business days
+    When the analyst selects "Extend investigation"
+    Then the system allows the extension
+    And records the basis as "Confirmation not received"
+```
+
+*Note: Compliance should confirm treatment of a case where the bank already completed its investigation before day 10.*
+
+## EPIC 3: Provisional Credit
+
+### US-07: Issue provisional credit when required
+
+**As a** consumer, **I want** provisional credit for the disputed amount when the bank cannot resolve my claim in time, **so that** I have use of my funds during the investigation.
+
+```gherkin
+Feature: Provisional credit (1005.11(c)(2))
+
+  Scenario: Provisional credit issued within 10 business days
+    Given a timely Reg E case remains unresolved on business day 10
+    When the system reaches business day 10
+    Then a provisional credit equal to the full disputed amount, including any applicable interest, is created
+    And the credit is posted to the consumer's account on or before business day 10
+    And the funds are available for the consumer's full use
+
+  Scenario: Provisional credit issued early
+    Given an analyst determines early that the claim is likely valid
+    When the analyst selects "Issue provisional credit now"
+    Then the credit is posted immediately and the issue date is recorded
+
+  Scenario: Consumer notified within 2 business days
+    Given a provisional credit was posted on 2026-12-04
+    When the posting completes
+    Then the system generates a notice with the amount and date of the credit
+    And the notice states the consumer has full use of the funds during the investigation
+    And the notice is delivered no later than 2 business days after posting
+
+  Scenario: Provisional credit not required because confirmation was not received
+    Given written confirmation of an oral notice was required and not received within 10 business days
+    When the system reaches business day 10
+    Then no provisional credit is created
+    And the reason "Written confirmation not received" is stored
+    And the decision is logged for audit
+
+  Scenario: New account provisional credit timing
+    Given the account was opened 25 days before the notice
+    When the case is unresolved by business day 10
+    Then the system schedules provisional credit by business day 20
+    And the case is flagged "New account"
+
+  Scenario: Provisional credit posting failure
+    Given the core banking posting call fails
+    When the system detects the failure
+    Then the case is escalated to Operations with a priority flag
+    And an alert is sent before the regulatory deadline
+    And the system retries according to the configured policy
+```
+
+*Note: New-account rules involve provisional credit for amounts above certain thresholds in some interpretations. Compliance should confirm the exact exceptions, including the 1005.11(c)(2) provisions and Comment 11(c)-2, before build.*
+
+### US-08: Maintain the provisional credit and funds availability
+
+**As an** operations user, **I want** provisional credit tracked as a distinct, reversible ledger item, **so that** finalizing or reversing it is accurate and auditable.
+
+```gherkin
+Feature: Provisional credit ledger
+
+  Scenario: Credit is posted with a unique reference
+    When a provisional credit is posted
+    Then the ledger entry has a dispute case reference, amount, and posting date
+    And its status is "Provisional"
+
+  Scenario: Account holder cannot be restricted from using provisional funds
+    Given a provisional credit is posted
+    When the consumer initiates withdrawals or transfers
+    Then the system applies no dispute-related hold on the credited funds
+
+  Scenario: Reconciliation
+    When the nightly reconciliation runs
+    Then every open provisional credit matches an active dispute case
+    And any mismatch creates an exception ticket
+```
+
+## EPIC 4: Investigation and Determination
+
+### US-09: Perform and document a good-faith investigation
+
+**As a** disputes analyst, **I want** a structured investigation workflow with required evidence, **so that** each decision is supported and defensible.
+
+```gherkin
+Feature: Investigation workflow
+
+  Scenario: Investigation checklist for unauthorized debit card transaction
+    Given a case classified "Unauthorized EFT"
+    When the analyst opens the case
+    Then the checklist includes authorization records, card-present or card-not-present data, device and IP data, prior customer history, and merchant evidence
+    And each item requires a result and a note before a determination can be saved
+
+  Scenario: Determination requires evidence
+    When the analyst attempts to select a determination without recording evidence reviewed
+    Then the system blocks the action
+    And displays "Document the evidence reviewed"
+
+  Scenario: Limited review of the bank's own records
+    Given the alleged error concerns a transfer to or from a third party
+    And bank policy permits a review of its own records for this transfer type
+    When the analyst records the investigation scope as "Own records"
+    Then the system requires the analyst to confirm the scope is permitted for this error type
+    And flags unauthorized-transfer cases for Compliance-approved scope rules
+
+  Scenario: Four-eyes review for denials
+    Given the analyst's determination is "No error"
+    When the analyst submits the determination
+    Then the case moves to QA/Compliance review before any customer notice is sent
+    And the reviewer can approve, reject, or request more investigation
+
+  Scenario: Determination within the deadline
+    Given the investigation deadline is approaching
+    When the analyst submits a determination before the deadline
+    Then the determination date and time are recorded and the clock stops
+```
+
+### US-10: Handle duplicate notices
+
+**As a** disputes analyst, **I want** duplicate notices recognized, **so that** the bank does not reopen settled matters while meeting its notice obligations.
+
+```gherkin
+Feature: Repeat notices (1005.11(d)(2))
+
+  Scenario: Same error reported again after a final determination
+    Given a closed case exists for the same account, transaction, and error
+    And the new notice contains no new or material information
+    When the agent creates a new case
+    Then the system flags it as "Potential duplicate"
+    And the analyst can mark it "Duplicate - no further investigation required"
+    And the system generates a written explanation referencing the prior case and determination
+
+  Scenario: New information changes the outcome
+    Given the new notice provides new information about the transaction
+    When the analyst marks "New information provided"
+    Then the system opens a new investigation with a new clock
+```
+
+## EPIC 5: Resolution and Communications
+
+### US-11: Resolve confirmed errors
+
+**As a** consumer, **I want** confirmed errors corrected promptly, **so that** I am made whole and informed.
+
+```gherkin
+Feature: Error confirmed (1005.11(c)(1))
+
+  Scenario: Correct the error within 1 business day
+    Given the analyst determines on 2026-12-02 that an error occurred
+    When the determination is approved
+    Then the system schedules the correction, including any applicable interest, within 1 business day of the determination
+    And the case is marked "Error confirmed"
+
+  Scenario: Provisional credit becomes final
+    Given the case has an existing provisional credit equal to the disputed amount
+    When the determination is "Error confirmed"
+    Then the provisional credit status changes to "Final"
+    And no additional credit is posted
+
+  Scenario: Provisional credit less than the confirmed error amount
+    Given the confirmed error amount exceeds the provisional credit
+    When the correction is processed
+    Then the system posts only the difference
+    And the ledger links both entries to the case
+
+  Scenario: Results reported within 3 business days
+    Given the investigation is complete
+    When the correction is posted
+    Then the system generates a result notice to the consumer
+    And the notice is sent within 3 business days of completing the investigation
+    And the notice states the error was corrected, the amount, and the date
+
+  Scenario: Follow-on charges to be refunded
+    Given the error caused overdraft or NSF fees
+    When the analyst confirms the error
+    Then the system prompts the analyst to review and reverse related fees
+    And the reversals are recorded under the case
+```
+
+### US-12: Resolve cases where no error is found
+
+**As a** consumer, **I want** a clear written explanation when my claim is denied, **so that** I understand the decision and can request the documents.
+
+```gherkin
+Feature: No error found (1005.11(d))
+
+  Scenario: Written explanation within 3 business days
+    Given a QA-approved determination of "No error"
+    When the determination is finalized
+    Then the system generates a written explanation of the findings
+    And the explanation is sent within 3 business days of completing the investigation
+    And it notes the consumer's right to request the documents the bank relied on
+
+  Scenario: Reversal of provisional credit with notice
+    Given a provisional credit exists
+    When the bank intends to debit it
+    Then the notice states the date and amount of the debit
+    And the debit is not executed before the notice is sent
+
+  Scenario: Honoring items for 5 business days
+    Given the provisional credit is debited
+    And the debit would overdraw the account
+    When checks, drafts, or preauthorized transfers payable to third parties are presented within 5 business days of the notice
+    Then the system pays them without assessing overdraft or NSF fees
+    And the obligation applies only to the extent of the debited provisional credit
+    And the consumer must have been notified of the five-business-day period
+
+  Scenario: Provisional credit debit is blocked prior to notice
+    Given the no-error notice has not been sent
+    When an operations user attempts to reverse the provisional credit
+    Then the system blocks the reversal
+
+  Scenario: Consumer requests documents
+    Given a consumer requests the documents relied upon
+    When the request is logged
+    Then the system routes it to the document fulfillment queue
+    And copies are provided promptly
+    And the request and delivery dates are recorded
+```
+
+### US-13: Generate compliant customer notices
+
+**As a** compliance officer, **I want** standardized, versioned templates for each required communication, **so that** content and timing are consistent and auditable.
+
+```gherkin
+Feature: Regulatory notices
+
+  Scenario Outline: Required notices are generated at the correct trigger
+    Given a Reg E case reaches "<trigger>"
+    When the system generates communications
+    Then the "<notice>" is created from the approved template version
+    And it is delivered by the consumer's preferred permitted channel
+    And delivery status and timestamp are stored
+
+    Examples:
+      | trigger                          | notice                                       |
+      | Oral notice with confirmation req| Written confirmation request                 |
+      | Provisional credit posted        | Provisional credit notice (2 business days)  |
+      | Error confirmed                  | Error corrected result notice                |
+      | No error found                   | Written explanation and provisional credit reversal notice |
+      | Investigation extended           | Extension notice                             |
+      | Duplicate notice                 | Prior determination reference notice         |
+
+  Scenario: Electronic delivery requires E-SIGN consent
+    Given the consumer has not consented to electronic delivery
+    When a notice is generated
+    Then the system sends it by mail
+
+  Scenario: Template change control
+    When a template is modified
+    Then Compliance approval is required before release
+    And prior versions are retained and linked to historical cases
+
+  Scenario: Failed delivery
+    Given a notice bounces or mail is returned
+    When the system receives the failure
+    Then the case is flagged and an alternate channel is attempted
+```
+
+## EPIC 6: Records, Controls, and Reporting
+
+### US-14: Retain records for two years
+
+**As a** compliance officer, **I want** complete, immutable case records retained for at least two years, **so that** the bank can demonstrate compliance (1005.13).
+
+```gherkin
+Feature: Record retention
+
+  Scenario: Retained case artifacts
+    When a case is closed
+    Then the system retains the notice, timeline, evidence, determination, notices sent, and ledger entries
+    And the retention date is the later of 2 years from the closing date or any longer internal or legal-hold period
+
+  Scenario: Audit trail is immutable
+    When any case field affecting a deadline or determination is changed
+    Then the system logs the user, timestamp, prior value, and new value
+    And the log cannot be edited or deleted by application users
+
+  Scenario: Legal hold
+    Given a legal hold is placed on a case
+    When the retention date arrives
+    Then the system does not purge the case
+```
+
+### US-15: Monitor compliance and detect risk
+
+**As a** disputes manager and compliance officer, **I want** dashboards and exception reports, **so that** deadline misses and error patterns are caught early.
+
+```gherkin
+Feature: Monitoring and reporting
+
+  Scenario: Daily deadline report
+    When the daily job runs
+    Then it lists open cases by days remaining for each milestone
+    And cases with missed deadlines are marked "Regulatory breach"
+
+  Scenario: Breach handling
+    Given a regulatory deadline was missed
+    When the breach is detected
+    Then a compliance incident is created automatically
+    And the case requires a documented root cause and remediation, including any customer make-whole action
+
+  Scenario: Management metrics
+    When a manager opens the dashboard
+    Then it shows volume by error type and channel, average days to resolve, percentage resolved within 10 business days, extension rate, provisional credit totals, and denial and overturn rates
+
+  Scenario: Quality sampling
+    Given a monthly QA sample is configured
+    When the sample is generated
+    Then it includes denied cases and extended cases
+    And reviewers record findings against the investigation standard
+
+  Scenario: Role-based access
+    Given a user without the Disputes Analyst role
+    When they attempt to approve a determination or post a credit
+    Then the system denies the action and logs the attempt
+```
+
+### US-16: Support the good-faith investigation standard
+
+**As a** compliance officer, **I want** controls that reduce the risk of damages for failing to investigate in good faith (1005.11(e)), **so that** the bank avoids treble damages exposure.
+
+```gherkin
+Feature: Good-faith investigation controls
+
+  Scenario: Denial requires a documented reasonable basis
+    Given an analyst selects "No error"
+    When the analyst saves the determination
+    Then the system requires a summary of the evidence supporting the conclusion that no error occurred
+    And rejects conclusions based only on the customer's history or a generic reason
+
+  Scenario: Missed deadlines on unauthorized claims are escalated
+    Given an unauthorized-transfer case is unresolved at the extended deadline
+    When the deadline is reached
+    Then the case is escalated to the Compliance officer
+    And the provisional credit is not reversed without Compliance approval
+
+  Scenario: Denials are not driven by a fixed quota
+    When a manager configures team performance goals
+    Then the system does not offer an approval or denial rate as a performance target
+```
+
+## 4. Non-Functional Requirements
+
+- **Accuracy:** Deadline calculations must be deterministic and unit-tested against the bank calendar, including leap years, holidays, and month ends.
+- **Availability:** The clock engine must run even during platform degradation, with a catch-up process that evaluates missed runs without altering historical dates.
+- **Security and privacy:** Encrypt case data and documents. Apply least-privilege access. Mask PAN and account numbers.
+- **Auditability:** All time-based decisions are reproducible from the stored timeline.
+- **Time zone:** Store timestamps in UTC and apply the bank's official time zone for business-day assignment. Make this configurable and documented.
+- **Integrations:** Core banking (ledger posting), card processor, ACH operations (Nacha return handling), document management, notification service, and the Reg Z workflow.
+
+## 5. Open Questions for Compliance and Legal
+
+1. Exact "new account" thresholds and the provisional credit exceptions for new accounts.
+2. Which routine inquiries are excluded from "notice of error" (Comment 11(a)).
+3. Bank policy on requiring written confirmation of oral notices: always, never, or by case type.
+4. The "later transfers" and 60-day interaction for unauthorized series (1005.6 and 1005.11).
+5. Treatment of transfers induced by fraud where the consumer initiated the payment (authorized-but-deceived), which is evolving and needs a bank position.
+6. Scope of the investigation for third-party or ACH errors when the bank limits review to its own records.
+7. State laws or card network rules that are more stringent than Reg E.
+8. Business-day definition and cutoff conventions for notice receipt.
+
+## 6. Suggested Delivery Sequence
+
+1. **MVP:** US-01, 03, 05, 07, 09, 11, 12, 14 (clock, provisional credit, determination, notices, records)
+2. **Release 2:** US-02, 04, 06, 08, 10, 13
+3. **Release 3:** US-15, 16 and advanced analytics
+
+I can break any of these into smaller tickets with story points and dependencies, or expand the data model and API contract for the clock and provisional credit services.

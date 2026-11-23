@@ -1,0 +1,292 @@
+### US-01: Error Intake, Classification, and Timeliness Validation
+
+**Regulatory Reference:** 12 CFR § 1005.11(a)(1)–(2), (b)(1), (b)(3), (e)
+
+**As a** Dispute Intake Specialist,
+
+**I want** the platform to validate consumer error notices against covered error types, timeliness windows, and required consumer details,
+
+**So that** valid Regulation E claims enter the resolution workflow with accurate statutory deadlines and non-covered inquiries are filtered out.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Regulation E Error Intake and Validation
+
+  Scenario Outline: Classify covered error types under § 1005.11(a)(1)
+    Given a consumer submits an oral or written notice of error
+    When the intake specialist selects "<Error_Category>"
+    Then the system classifies the case as a covered Regulation E error
+    And enables the error resolution SLA workflow
+
+    Examples:
+      | Error_Category                                                                      |
+      | Unauthorized electronic fund transfer                                               |
+      | Incorrect electronic fund transfer to or from the consumer's account                |
+      | Omission of an electronic fund transfer from a periodic statement                   |
+      | Computational or bookkeeping error by the institution relating to an EFT            |
+      | Receipt of an incorrect amount of money from an electronic terminal                 |
+      | EFT not identified in accordance with § 1005.9 or § 1005.10(a)                      |
+      | Request for documentation/clarification required by § 1005.9 or § 1005.10(a)        |
+
+  Scenario Outline: Exclude non-covered inquiries under § 1005.11(a)(2)
+    Given a consumer contacts the bank regarding an electronic fund transfer
+    When the inquiry is logged as "<Inquiry_Type>"
+    Then the system flags the request as excluded from Regulation E error resolution procedures
+
+    Examples:
+      | Inquiry_Type                                                  |
+      | Routine inquiry about the consumer's account balance          |
+      | Request for information for tax or other recordkeeping purposes |
+      | Request for duplicate copies of documentation                 |
+
+  Scenario: Validate required notice contents for standard error claims under § 1005.11(b)(1)(ii)-(iii)
+    Given a consumer submits a notice of error for categories (a)(1)(i) through (a)(1)(vi)
+    When the specialist attempts to submit the intake record
+    Then the system requires the consumer's name and account number
+    And requires the reason the consumer believes an error exists
+    And provides fields to capture the type, date, and amount of the error to the extent possible
+
+  Scenario: Validate required notice contents for documentation/clarification requests under § 1005.11(b)(1)(iii)
+    Given a consumer submits a request for documentation or clarification under § 1005.11(a)(1)(vii)
+    When the specialist attempts to submit the intake record
+    Then the system requires the consumer's name and account number
+    And does not block submission if the type, date, and amount of an error are omitted
+
+  Scenario: Calculate 60-day timely filing window from periodic statement or passbook under § 1005.11(b)(1)(i)
+    Given the periodic statement or passbook documentation reflecting the alleged error was sent or provided on "<Statement_Date>"
+    When the consumer's notice of error is received on "<Receipt_Date>"
+    Then the system calculates the elapsed calendar days between "<Statement_Date>" and "<Receipt_Date>"
+    And marks the notice as "Timely" if received on or before day 60
+    And marks the notice as "Untimely (Over 60 Days)" if received after day 60
+
+  Scenario: Calculate 60-day timely filing window following a documentation/clarification response under § 1005.11(b)(3)
+    Given the consumer previously requested documentation or clarification under § 1005.11(a)(1)(vii)
+    And the bank sent the requested information on "<Info_Sent_Date>"
+    When the consumer submits a subsequent notice of error on "<Receipt_Date>"
+    Then the system calculates timeliness as 60 calendar days from "<Info_Sent_Date>"
+
+  Scenario: Prevent duplicate error resolution workflow on reasserted errors under § 1005.11(e)
+    Given a prior error claim for the same transaction was resolved in full compliance with § 1005.11
+    And the prior claim was not solely a request for documentation or clarification under § 1005.11(a)(1)(vii)
+    When the consumer attempts to reassert the same error
+    Then the system alerts the specialist that the institution has no further error resolution responsibilities under § 1005.11
+
+```
+
+---
+
+### US-02: Written Confirmation Management for Oral Error Notices
+
+**Regulatory Reference:** 12 CFR § 1005.11(b)(2), (c)(2)(i)(A)
+
+**As a** Dispute Intake Specialist,
+
+**I want** the system to track written confirmation requirements when a consumer reports an error orally,
+
+**So that** the consumer receives timely instructions and the platform accurately determines provisional credit eligibility.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Written Confirmation Requirement for Oral Notices
+
+  Scenario: Trigger written confirmation disclosure upon oral notice under § 1005.11(b)(2)
+    Given a consumer submits an oral notice of error
+    And bank policy requires written confirmation for the claim
+    When the intake record is saved
+    Then the system prompts the specialist to inform the consumer of the written confirmation requirement during the interaction
+    And displays the designated mailing/submission address to provide to the consumer
+    And sets a "Written Confirmation Due Date" of 10 business days from the oral notice receipt date
+
+  Scenario: Withhold provisional credit if required written confirmation is not received within 10 business days under § 1005.11(c)(2)(i)(A)
+    Given the bank required written confirmation for an oral notice of error
+    And the 10-business-day deadline has elapsed without receipt of written confirmation
+    When the investigation extends beyond 10 business days
+    Then the system suppresses mandatory provisional credit issuance
+    And keeps the investigation SLA active through the applicable 45-day or 90-day investigation deadline
+
+```
+
+---
+
+### US-03: Dynamic Investigation SLA and Deadline Calculation
+
+**Regulatory Reference:** 12 CFR § 1005.11(c)(1), (c)(2), (c)(3)(i)–(ii)
+
+**As a** Disputes Operations Manager,
+
+**I want** the platform to automatically calculate initial and extended investigation deadlines based on account age, transaction type, and origin,
+
+**So that** investigators meet all statutory deadlines without manual date math.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Regulation E Investigation SLA Calculation
+
+  Scenario: Assign standard 10-business-day and 45-calendar-day SLAs under § 1005.11(c)(1)-(2)
+    Given a timely notice of error is received
+    And the transaction did not occur within 30 days of the first deposit to the account
+    And the transaction was initiated within a U.S. state
+    And the transaction did not result from a point-of-sale (POS) debit card transaction
+    When the case SLA timer initializes
+    Then the initial investigation and provisional credit deadline is set to 10 business days from receipt
+    And the extended investigation deadline is set to 45 calendar days from receipt
+
+  Scenario: Apply 20-business-day and 90-calendar-day extensions for new accounts under § 1005.11(c)(3)(i)-(ii)(C)
+    Given a timely notice of error is received
+    And the alleged error involves an EFT that occurred within 30 days after the first deposit to the account was made
+    When the case SLA timer initializes
+    Then the initial investigation and provisional credit deadline is set to 20 business days from receipt
+    And the extended investigation deadline is set to 90 calendar days from receipt
+
+  Scenario Outline: Apply 90-calendar-day extended investigation window for POS debit and foreign transactions under § 1005.11(c)(3)(ii)(A)-(B)
+    Given a timely notice of error is received
+    And the transaction occurred more than 30 days after the first deposit to the account
+    When the transaction meets the condition "<Extension_Trigger>"
+    Then the initial investigation and provisional credit deadline remains 10 business days from receipt
+    And the extended investigation deadline is set to 90 calendar days from receipt
+
+    Examples:
+      | Extension_Trigger                                         |
+      | Transaction was not initiated within a state              |
+      | Transaction resulted from a point-of-sale debit card EFT  |
+
+```
+
+---
+
+### US-04: Provisional Credit Issuance, Exclusions, and Consumer Notification
+
+**Regulatory Reference:** 12 CFR § 1005.11(c)(2)(i)–(ii), (c)(3)(i)
+
+**As a** Dispute Investigator,
+
+**I want** the platform to manage provisional credit calculations, statutory exceptions, and 2-business-day consumer notices,
+
+**So that** consumers receive full use of disputed funds on time when investigations cannot be resolved within the initial window.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Provisional Credit Processing and Notification
+
+  Scenario: Issue provisional credit when investigation exceeds initial window under § 1005.11(c)(2)(i)-(ii)
+    Given an investigation is still open approaching day 10 business days (or day 20 business days for new accounts)
+    And no statutory exception applies
+    When provisional credit is triggered
+    Then the system credits the consumer's account for the full amount of the alleged error plus applicable interest no later than the 10th (or 20th) business day
+    And grants the consumer full use of the credited funds during the investigation
+    And generates a consumer notification stating the amount and date of the provisional credit to be sent within 2 business days after crediting
+
+  Scenario: Withhold up to $50 on unauthorized EFTs under § 1005.11(c)(2)(i)
+    Given the bank has a reasonable basis for believing an unauthorized EFT occurred
+    And the investigator confirms the institution has satisfied the disclosure/liability requirements of § 1005.6(a)
+    When provisional credit is calculated
+    Then the system allows withholding a maximum of $50.00 from the provisionally credited amount
+
+  Scenario: Exempt Regulation T accounts from provisional credit under § 1005.11(c)(2)(i)(B)
+    Given the alleged error involves an account subject to Regulation T (12 CFR part 220)
+    When the investigation extends beyond 10 business days
+    Then the system exempts the case from mandatory provisional crediting
+
+```
+
+---
+
+### US-05: Investigation Scope for Third-Party Transfers
+
+**Regulatory Reference:** 12 CFR § 1005.11(c)(4)
+
+**As a** Dispute Investigator,
+
+**I want** the system to identify when an internal records review satisfies the investigation requirement for third-party transfers,
+
+**So that** investigations are not needlessly delayed awaiting external parties with whom the bank has no agreement.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Third-Party Transfer Investigation Scope
+
+  Scenario: Limit investigation to internal records when no third-party agreement exists under § 1005.11(c)(4)
+    Given the alleged error is not covered by § 1005.14
+    And the alleged error concerns a transfer to or from a third party
+    And the system verifies there is no agreement between the bank and the third party for that type of EFT
+    When the investigator completes a review of the bank's own records regarding the alleged error
+    Then the system allows the investigator to mark the investigation scope as complete under § 1005.11(c)(4)
+
+```
+
+---
+
+### US-06: Resolution When Error Is Confirmed (Final Credit & Reporting)
+
+**Regulatory Reference:** 12 CFR § 1005.11(c)(1), (c)(2)(iii)–(iv)
+
+**As a** Dispute Investigator,
+
+**I want** the platform to enforce 1-business-day error correction and 3-business-day result reporting deadlines once an error is confirmed,
+
+**So that** the consumer is made whole and notified promptly.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Confirmed Error Resolution and Reporting
+
+  Scenario: Correct confirmed error and report results when no provisional credit was issued under § 1005.11(c)(1)
+    Given the investigator determines on "<Determination_Date>" that the alleged error occurred
+    And no provisional credit was previously issued
+    When the determination is recorded
+    Then the system creates a mandatory task to credit/correct the consumer's account (including applicable interest) within 1 business day of "<Determination_Date>"
+    And creates a mandatory task to report the investigation results to the consumer within 3 business days after completing the investigation
+
+  Scenario: Finalize provisional credit and report results when error is confirmed under § 1005.11(c)(2)(iii)-(iv)
+    Given provisional credit was previously issued to the consumer's account
+    And the investigator determines on "<Determination_Date>" that the alleged error occurred
+    When the determination is recorded
+    Then the system converts the provisional credit to final within 1 business day of "<Determination_Date>" (including any remaining balance/interest if up to $50 was withheld)
+    And generates a results notice to be sent within 3 business days after completing the investigation explicitly stating that the provisional credit has been made final
+
+```
+
+---
+
+### US-07: Adverse Determination (No Error or Different Error) and Provisional Credit Reversal
+
+**Regulatory Reference:** 12 CFR § 1005.11(c)(1), (c)(2)(iv), (d)(1)–(2)
+
+**As a** Dispute Investigator,
+
+**I want** the platform to generate a written explanation with document-request rights and enforce a 5-business-day overdraft protection period when reversing provisional credit,
+
+**So that** adverse determinations and credit clawbacks strictly comply with § 1005.11(d).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Adverse Determination and Provisional Credit Debiting
+
+  Scenario: Issue written explanation and document-request rights under § 1005.11(d)(1)
+    Given the investigator determines that no error occurred or that an error occurred in a manner or amount different from that described by the consumer
+    When the investigation is completed
+    Then the system requires a written explanation of the bank's findings in the results report
+    And includes a mandatory notice of the consumer's right to request copies of the documents the bank relied upon in making its determination
+    And schedules the report to be sent within 3 business days after completing the investigation
+
+  Scenario: Track consumer requests for relied-upon documents under § 1005.11(d)(1)
+    Given an adverse determination notice was sent to the consumer
+    When the consumer requests copies of the documents relied upon by the bank
+    Then the system logs a fulfillment task to promptly provide copies of those documents to the consumer
+
+  Scenario: Debit provisional credit and trigger 5-business-day item honoring protection under § 1005.11(d)(2)
+    Given provisional credit was previously applied to the consumer's account
+    And the bank determines that no error occurred or a different error amount occurred
+    When the bank debits the provisionally credited amount from the consumer's account on "<Debit_Date>"
+    Then the system sends a notice to the consumer stating the date ("<Debit_Date>") and exact amount of the debiting
+    And notifies the consumer that the bank will honor checks, drafts, or similar instruments payable to third parties and preauthorized transfers from the account without overdraft charges for 5 business days after the notification
+    And applies a 5-business-day overdraft fee waiver and item-honoring flag on the account for items that would have been paid had the provisionally credited funds not been debited
+
+```

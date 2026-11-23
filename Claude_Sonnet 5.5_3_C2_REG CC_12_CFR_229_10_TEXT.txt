@@ -1,0 +1,294 @@
+# Reg CC § 229.10 Next-Day Availability: User Stories and Acceptance Criteria
+
+**Conventions used in the criteria**
+- "Deadline" means the latest permitted availability date ("not later than"). The engine may release earlier but never later.
+- "Banking day of deposit" is the day the deposit is credited as deposited. "Business day" is as defined by the bank's calendar configuration (see Open Questions).
+
+---
+
+## US-01: Cash deposited in person
+**As a** deposit hold engine, **I want** to set the availability deadline for cash deposits made in person to a bank employee **so that** funds are available by the next business day.
+
+```gherkin
+Feature: Cash deposits - § 229.10(a)
+
+  Scenario: Cash deposited in person to a bank employee
+    Given a cash deposit is made to an account
+    And the deposit is made in person to an employee of the depositary bank
+    When the deposit is posted on a banking day
+    Then the availability deadline is the business day after that banking day
+
+  Scenario: Cash deposited not in person
+    Given a cash deposit is made to an account
+    And the deposit is not made in person to an employee of the depositary bank
+    When the deposit is posted on a banking day
+    Then the availability deadline is the second business day after that banking day
+```
+
+*(Covers US-02, (a)(2), as the second scenario. It is kept as a separate story in the backlog for traceability.)*
+
+## US-02: Cash deposited not in person
+**As a** deposit hold engine, **I want** a separate rule path for cash not deposited in person (for example ATM or mail) **so that** the second-business-day deadline is applied.
+
+```gherkin
+  Scenario Outline: Cash deadline by channel
+    Given a cash deposit is made on a banking day
+    And the "in person to bank employee" indicator is <in_person>
+    Then the availability deadline is <deadline>
+
+    Examples:
+      | in_person | deadline                                      |
+      | true      | business day after the banking day            |
+      | false     | second business day after the banking day     |
+```
+
+---
+
+## US-03: Electronic payments
+**As a** deposit hold engine, **I want** to treat an electronic payment as received only when both receipt conditions are met **so that** the next-day clock starts on the correct banking day and for the correct amount.
+
+```gherkin
+Feature: Electronic payments - § 229.10(b)
+
+  Scenario: Payment received when funds and account information are both present
+    Given the bank has received payment in actually and finally collected funds
+    And the bank has received information on the account and amount to be credited
+    When the electronic payment is recorded on a banking day
+    Then the payment is marked "received" on that banking day
+    And the availability deadline is the business day after that banking day
+
+  Scenario: Final funds received but no account/amount information
+    Given the bank has received payment in actually and finally collected funds
+    And the bank has not received information on the account and amount to be credited
+    Then the payment is not marked "received"
+    And no availability deadline is set
+
+  Scenario: Account/amount information received but funds not yet finally collected
+    Given the bank has received information on the account and amount to be credited
+    And the bank has not received payment in actually and finally collected funds
+    Then the payment is not marked "received"
+    And no availability deadline is set
+
+  Scenario: Payment received only in part
+    Given the bank has received account and amount information for $1,000.00
+    And the bank has received actually and finally collected funds of only $600.00
+    Then the payment is treated as received only for $600.00
+    And the $600.00 has an availability deadline of the business day after the banking day it was received
+    And the remaining $400.00 has no deadline until it is received in finally collected funds
+```
+
+---
+
+## US-04: Treasury checks
+**As a** deposit hold engine, **I want** next-business-day availability for U.S. Treasury checks deposited by a payee **so that** § 229.10(c)(1)(i) is met.
+
+```gherkin
+Feature: Check deposits, next-day - § 229.10(c)(1)
+
+  Scenario Outline: Check drawn on the Treasury of the United States
+    Given a check drawn on the Treasury of the United States
+    And the account holder is <payee_status> of the check
+    When the check is deposited on a banking day
+    Then the next-day rule (c)(1)(i) <applies>
+
+    Examples:
+      | payee_status | applies                                                   |
+      | a payee      | applies; deadline is the business day after the banking day |
+      | not a payee  | does not apply                                            |
+```
+
+*Note: the supplied text has no second-day tier for (c)(1)(i), so the channel (in person or not) is irrelevant for this check type.*
+
+---
+
+## US-05: USPS money orders
+**As a** deposit hold engine, **I want** to apply next-day availability to USPS money orders deposited in person by a payee, and second-day availability when not in person.
+
+```gherkin
+  Scenario Outline: U.S. Postal Service money order
+    Given a U.S. Postal Service money order
+    And the account holder is <payee_status> of the money order
+    And the deposit is <channel>
+    When the deposit is made on a banking day
+    Then the availability deadline is <deadline>
+
+    Examples:
+      | payee_status | channel                                  | deadline                                    |
+      | a payee      | in person to a bank employee             | business day after the banking day          |
+      | a payee      | not in person to a bank employee         | second business day after the banking day   |
+      | not a payee  | any                                      | not determined by § 229.10(c)(1)(ii) or (c)(2) |
+```
+
+---
+
+## US-06: Federal Reserve Bank and Federal Home Loan Bank checks
+**As a** deposit hold engine, **I want** next-day availability for checks drawn on a Federal Reserve Bank or Federal Home Loan Bank when deposited in person by a payee.
+
+```gherkin
+  Scenario Outline: Check drawn on a Federal Reserve Bank or Federal Home Loan Bank
+    Given a check drawn on a <drawee_type>
+    And the account holder is <payee_status> of the check
+    And the deposit is <channel>
+    When the deposit is made on a banking day
+    Then the availability deadline is <deadline>
+
+    Examples:
+      | drawee_type             | payee_status | channel                          | deadline                                  |
+      | Federal Reserve Bank    | a payee      | in person to a bank employee     | business day after the banking day        |
+      | Federal Home Loan Bank  | a payee      | in person to a bank employee     | business day after the banking day        |
+      | Federal Reserve Bank    | a payee      | not in person to a bank employee | second business day after the banking day |
+      | Federal Home Loan Bank  | a payee      | not in person to a bank employee | second business day after the banking day |
+      | Federal Reserve Bank    | not a payee  | any                              | not determined by § 229.10(c)(1)(iii) or (c)(2) |
+```
+
+---
+
+## US-07: State and local government checks
+**As a** deposit hold engine, **I want** to validate all four conditions for state and local government checks **so that** next-day availability is applied only when every condition is met.
+
+```gherkin
+  Scenario Outline: Check drawn by a state or unit of general local government
+    Given a check drawn by a state or a unit of general local government
+    And the account holder is <payee> a payee of the check
+    And the depositary bank is located in <location> the state that issued the check
+      # for a local government check: the same state as the issuing unit
+    And the deposit is <channel>
+    And the special deposit slip condition is <slip_status>
+    When the deposit is made on a banking day
+    Then the availability deadline is <deadline>
+
+    Examples:
+      | payee | location | channel     | slip_status                          | deadline                                  |
+      | yes   | in       | in person   | satisfied                            | business day after the banking day        |
+      | yes   | in       | in person   | not required by the bank             | business day after the banking day        |
+      | yes   | in       | not in person | satisfied                          | second business day after the banking day |
+      | yes   | in       | in person   | required by the bank but not used    | not determined by § 229.10(c)(1)(iv) or (c)(2) |
+      | yes   | outside  | in person   | satisfied                            | not determined by § 229.10(c)(1)(iv) or (c)(2) |
+      | no    | in       | in person   | satisfied                            | not determined by § 229.10(c)(1)(iv) or (c)(2) |
+```
+
+*(Write the Outline with "payee: a payee / not a payee" and "location: in / outside" values in implementation; shortened here for readability.)*
+
+---
+
+## US-08: Cashier's, certified, and teller's checks
+**As a** deposit hold engine, **I want** next-day availability for cashier's, certified, and teller's checks that meet the payee, in-person, and special-slip conditions.
+
+```gherkin
+  Scenario Outline: Cashier's, certified, or teller's check
+    Given a <check_type>
+    And the account holder is <payee_status> of the check
+    And the deposit is <channel>
+    And the special deposit slip condition is <slip_status>
+    When the deposit is made on a banking day
+    Then the availability deadline is <deadline>
+
+    Examples:
+      | check_type        | payee_status | channel          | slip_status                       | deadline                                  |
+      | cashier's check   | a payee      | in person        | satisfied                         | business day after the banking day        |
+      | certified check   | a payee      | in person        | not required by the bank          | business day after the banking day        |
+      | teller's check    | a payee      | in person        | satisfied                         | business day after the banking day        |
+      | cashier's check   | a payee      | not in person    | satisfied                         | second business day after the banking day |
+      | teller's check    | a payee      | in person        | required by the bank but not used | not determined by § 229.10(c)(1)(v) or (c)(2) |
+      | certified check   | not a payee  | in person        | satisfied                         | not determined by § 229.10(c)(1)(v) or (c)(2) |
+```
+
+---
+
+## US-09: Checks drawn on the same bank
+**As a** deposit hold engine, **I want** next-day availability for checks deposited at one branch and drawn on the same or another branch of the same bank when both branches are in the same state or the same check processing region.
+
+```gherkin
+  Scenario Outline: Check deposited in a branch and drawn on a branch of the same bank
+    Given a check deposited in a branch of the depositary bank
+    And the check is drawn on <drawee_branch> of the same bank
+    And the two branches are <geography>
+    When the deposit is made on a banking day
+    Then the next-day rule (c)(1)(vi) <applies>
+
+    Examples:
+      | drawee_branch       | geography                                         | applies                                                   |
+      | the same branch     | in the same state                                 | applies; deadline is the business day after the banking day |
+      | another branch      | in the same state                                 | applies; deadline is the business day after the banking day |
+      | another branch      | in the same check processing region (different states) | applies; deadline is the business day after the banking day |
+      | another branch      | in a different state and a different region       | does not apply                                            |
+```
+
+---
+
+## US-10: Lesser of $275 or aggregate check deposits
+**As a** deposit hold engine, **I want** to make available the lesser of $275 or the day's aggregate of other check deposits **so that** § 229.10(c)(1)(vii) is met.
+
+```gherkin
+  Scenario Outline: Aggregate amount of checks not subject to next-day availability
+    Given a customer deposits checks on one banking day to all of the customer's accounts
+    And the checks not subject to next-day availability under (c)(1)(i) through (vi) total <aggregate>
+    Then the amount available by the business day after that banking day is <next_day_amount>
+
+    Examples:
+      | aggregate | next_day_amount |
+      | $100.00   | $100.00         |
+      | $275.00   | $275.00         |
+      | $1,000.00 | $275.00         |
+
+  Scenario: Checks qualifying under (c)(1)(i) through (vi) are excluded from the aggregate
+    Given a customer deposits on one banking day:
+      | item                                          | amount     |
+      | Treasury check, payee deposit                 | $2,000.00  |
+      | Personal check not covered by (c)(1)(i)-(vi)  | $500.00    |
+    Then the Treasury check is handled under (c)(1)(i)
+    And the aggregate for (c)(1)(vii) is $500.00
+    And the amount available by the next business day under (c)(1)(vii) is $275.00
+
+  Scenario: Aggregation spans all of the customer's accounts
+    Given a customer deposits a $200.00 check to account A on one banking day
+    And the same customer deposits a $200.00 check to account B on that banking day
+    And both checks are not subject to next-day availability under (c)(1)(i) through (vi)
+    Then the aggregate is $400.00
+    And the total next-day amount across both accounts is $275.00
+```
+
+---
+
+## US-11: Special deposit slip configuration
+**As a** compliance configuration owner, **I want** to configure whether the bank requires special deposit slips or envelopes **so that** the engine applies the slip condition in US-07 and US-08 correctly.
+
+```gherkin
+Feature: Special deposit slip - § 229.10(c)(3)
+
+  Scenario: Bank does not require special slips
+    Given the bank has not configured a special-slip requirement
+    When a state/local government check or a cashier's, certified, or teller's check is deposited
+    Then the special deposit slip condition is treated as satisfied
+
+  Scenario: Bank requires special slips and the deposit uses one
+    Given the bank requires a special deposit slip or envelope identifying the type of check
+    And the deposit used a slip or envelope that identifies the type of check
+    Then the special deposit slip condition is satisfied
+
+  Scenario: Bank requires special slips and the deposit does not use one
+    Given the bank requires a special deposit slip or envelope identifying the type of check
+    And the deposit did not use one
+    Then the special deposit slip condition is not satisfied
+
+  Scenario: Enabling the requirement requires a customer-access method
+    Given a user attempts to enable the special-slip requirement
+    When no method is configured for either providing the slips/envelopes to customers or informing customers how to prepare or obtain them
+    Then the configuration is rejected
+    And the user is told that one of those methods must be set up and made reasonably available
+```
+
+---
+
+## Open Questions and Assumptions
+
+The regulatory text supplied does not cover several things the engine needs. I did not fill them in from outside sources:
+
+1. **Definitions are missing.** "Business day," "banking day," "check processing region," and "in person to an employee" are not defined in the excerpt. The criteria assume the bank's calendar and channel data already supply these.
+2. **No rule for checks that miss every condition.** The text sets no § 229.10 deadline for these, so the Examples show "not determined by § 229.10." You will need a product decision on which other rules or policies apply.
+3. **Second-day gaps.** (c)(2) references only (c)(1)(ii) through (v). Treasury checks (i) and same-bank checks (vi) have no second-day tier in this text.
+4. **(c)(1)(vii) boundary.** It is unclear whether checks that fall to second-day treatment under (c)(2) count as "not subject to next-day availability under (c)(1)(i) through (vi)" for the aggregate. US-10 assumes they do not qualify for next day, so they are in the aggregate. Confirm this with Compliance or Legal.
+5. **Partial electronic receipt.** US-03 applies "only to the extent" language by amount, which is my interpretation.
+6. **Local government checks.** The same-state condition for local government checks is read as the state of the issuing unit, per (c)(1)(iv)(B).
+
+I'm not a lawyer, so have Compliance or Legal review these before build.

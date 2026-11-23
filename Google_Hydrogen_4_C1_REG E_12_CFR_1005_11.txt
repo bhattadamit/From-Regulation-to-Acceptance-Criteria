@@ -1,0 +1,175 @@
+Below are core user stories with Gherkin acceptance criteria for implementing Regulation E (12 CFR § 1005.11) error resolution in a US retail banking card and ACH disputes platform.
+
+---
+
+### Epic: Regulation E Error Resolution Compliance (12 CFR § 1005.11)
+
+#### Story 1: Dispute Intake & Covered Transaction Qualification
+
+**As a** Dispute Intake Agent (or Digital Self-Service Portal),
+
+**I want** the system to evaluate incoming card and ACH disputes against Regulation E eligibility rules upon submission,
+
+**So that** compliant SLA timers and statutory workflows are automatically triggered for covered Electronic Fund Transfers (EFTs).
+
+```gherkin
+Feature: Regulation E Dispute Qualification and SLA Timer Initialization
+
+  Scenario: Qualifying consumer debit card or ACH transaction triggers Reg E workflow
+    Given a consumer checking or savings account holder submits a dispute
+    And the disputed transaction is an Electronic Fund Transfer (debit card, ATM, or consumer ACH)
+    And the notice is received within 60 days of the periodic statement transmittal date showing the error
+    When the dispute case is created
+    Then the system flags the case as "Reg E Eligible"
+    And sets the "Initial Investigation Deadline" to 10 business days from the receipt date
+    And sets the "Extended Investigation Deadline" to 45 calendar days from the receipt date
+
+  Scenario: Non-consumer account or non-EFT transaction bypasses Reg E workflow
+    Given a business account holder submits a dispute for a commercial ACH debit
+    When the dispute case is created
+    Then the system flags the case as "Non-Reg E (NACHA / Commercial)"
+    And does not apply Regulation E provisional credit timers
+
+  Scenario: Oral notice triggers written confirmation request option
+    Given a consumer notifies the bank orally of an alleged EFT error
+    When the intake agent logs the oral notification
+    Then the system starts the 10-business-day investigation clock immediately upon oral receipt
+    And generates an optional "Request for Written Confirmation" task due within 10 business days
+
+```
+
+---
+
+#### Story 2: Provisional Credit Issuance & Extended Investigation (10-Day / 45-Day Rule)
+
+**As a** Disputes Operations Specialist,
+
+**I want** the system to enforce provisional credit issuance if an investigation cannot be completed within 10 business days,
+
+**So that** the bank remains compliant when extending the investigation window to 45 calendar days.
+
+```gherkin
+Feature: Provisional Credit and 45-Day Investigation Extension
+
+  Scenario: Investigation unresolved at Business Day 10 triggers provisional credit
+    Given a Reg E eligible dispute is in "Open - Under Investigation" status
+    And the current date reaches Business Day 10 from the notice receipt date
+    And the consumer provided timely written confirmation (if required by bank policy)
+    When the daily SLA batch job executes
+    Then the system automatically posts a provisional credit for the full disputed amount (including related bank fees)
+    And updates the case investigation deadline to 45 calendar days from the initial notice date
+    And triggers the "Provisional Credit & Extension Notice" to be sent within 2 business days of crediting
+
+  Scenario: Provisional credit withheld due to missing written confirmation
+    Given the bank required written confirmation within 10 business days of an oral error notice
+    And the consumer failed to provide written confirmation by Business Day 10
+    When the daily SLA batch job executes
+    Then the system does not issue provisional credit
+    And maintains the 45-calendar-day investigation deadline to complete the investigation and report results
+
+  Scenario: Extended 20-business-day / 90-calendar-day timers for new accounts, POS, or foreign transactions
+    Given a Reg E eligible dispute involves a transaction initiated within 30 days of the first deposit to a new account
+    Or the transaction was a Point-of-Sale (POS) debit card transaction or initiated outside the United States
+    When the dispute case is created
+    Then the system sets the "Initial Investigation Deadline" to 20 business days
+    And sets the "Extended Investigation Deadline" to 90 calendar days
+
+```
+
+---
+
+#### Story 3: Final Determination — Error Confirmed (Final Credit)
+
+**As a** Disputes Investigator,
+
+**I want** to finalize a claim when an EFT error is confirmed,
+
+**So that** the consumer receives full restitution (including interest and fees) and required regulatory notice within statutory timelines.
+
+```gherkin
+Feature: Resolution of Confirmed Regulation E Error
+
+  Scenario: Error confirmed within 10 business days (no prior provisional credit)
+    Given a Reg E dispute is under investigation within the initial 10-business-day window
+    When the investigator selects disposition "Error Confirmed"
+    Then the system posts a final credit for the disputed amount plus any lost interest and bank-imposed overdraft/NSF fees
+    And closes the case within 1 business day of the determination
+    And sends the "Final Resolution - Error Corrected" notice promptly
+
+  Scenario: Error confirmed during extended window (provisional credit already issued)
+    Given provisional credit was previously posted to the consumer's account
+    When the investigator selects disposition "Error Confirmed" on or before Day 45 (or Day 90)
+    Then the system converts the provisional credit into a final credit
+    And posts any remaining owed interest or bank-assessed fees within 1 business day
+    And sends the "Provisional Credit Made Final" notice to the consumer
+
+```
+
+---
+
+#### Story 4: Final Determination — No Error Found & Provisional Credit Reversal
+
+**As a** Disputes Investigator,
+
+**I want** to close a claim when no error is found and manage the compliant reversal of any provisional credit,
+
+**So that** the consumer receives proper explanation, document access rights, and advance notice before funds are debited.
+
+```gherkin
+Feature: Resolution When No Error or Different Error is Found
+
+  Scenario: No error found with provisional credit reversal and 5-business-day protection
+    Given provisional credit was previously issued on a Reg E dispute
+    When the investigator selects disposition "No Error Found"
+    Then the system sends a written "Notice of Final Determination & Reversal" within 3 business days of completing the investigation
+    And the notice informs the consumer of their right to request copies of documents relied upon
+    And the notice states the exact date and amount of the upcoming debit
+    And the system schedules the provisional credit reversal debit for 5 business days after the notice date
+    And the system honors checks, preauthorized debits, and third-party drafts without charging overdraft fees during those 5 business days
+
+  Scenario: Consumer requests investigation documentation
+    Given a "No Error Found" determination notice has been issued
+    When the consumer requests copies of the documents relied upon in the investigation
+    Then the system creates a high-priority "Document Fulfillment" task
+    And tracks SLA compliance to ensure prompt delivery of the documentation package
+
+```
+
+---
+
+#### Story 5: Consumer Liability Tiering for Unauthorized Transfers (12 CFR § 1005.6)
+
+**As a** Disputes System Calculation Engine,
+
+**I want** to calculate maximum consumer liability based on access device loss/theft reporting timelines,
+
+**So that** the bank does not unlawfully hold consumers liable beyond statutory caps.
+
+```gherkin
+Feature: Regulation E Consumer Liability Calculation
+
+  Scenario: Lost or stolen debit card reported within 2 business days
+    Given a consumer reports a lost or stolen debit card within 2 business days of learning of the loss/theft
+    When unauthorized transactions occurred prior to notice
+    Then the system caps maximum consumer liability at the lesser of $50 or the amount of unauthorized transfers
+
+  Scenario: Lost or stolen debit card reported after 2 business days (up to 60 days from statement)
+    Given a consumer learns of a lost or stolen debit card and reports it more than 2 business days later
+    When unauthorized transactions occurred after the 2-business-day window
+    Then the system caps maximum consumer liability at $500 (up to $50 for the first 2 days, plus remaining unauthorized transfers up to $500 total)
+
+  Scenario: Unauthorized ACH or card-not-present transfer with no physical card loss
+    Given a consumer reports an unauthorized EFT where no access device was lost or stolen (e.g., ACH account takeover or skimming)
+    And the consumer reports the transfer within 60 days of the periodic statement transmittal date
+    When liability is calculated
+    Then the system sets maximum consumer liability to $0
+
+```
+
+---
+
+### Key Implementation Notes for Engineering & QA
+
+* **Business Day Calendar:** Ensure the SLA engine excludes Saturdays, Sundays, and Federal Reserve holidays per 12 CFR § 1005.2(d).
+* **Overdraft Protection Hold:** During the 5-business-day post-reversal notice window (Story 4), the core banking ledger integration must suppress NSF/OD fees caused by honoring third-party items against the provisionally credited balance.
+* **Audit Logging:** Every timestamp (oral notice, written confirmation receipt, provisional credit posting, notice dispatch) must be immutably logged for CFPB/OCC examination readiness.

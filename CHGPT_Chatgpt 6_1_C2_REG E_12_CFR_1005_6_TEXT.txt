@@ -1,0 +1,687 @@
+# **Regulation E – Consumer Liability for Unauthorized Transfers**
+
+**Business Requirements and User Stories | 12 CFR § 1005.6**
+
+## **1. Objective**
+
+Implement consumer liability determination within the bank's disputes platform in accordance with 12 CFR § 1005.6.
+
+The platform must calculate the consumer's maximum permissible liability for unauthorized electronic fund transfers (EFTs), considering:
+
+- Whether the required regulatory disclosures were provided.
+- Whether an access device was involved and met the regulatory conditions.
+- When the consumer learned of the loss or theft and when notice was provided.
+- Whether notice was provided within the applicable two-business-day period.
+- Whether unauthorized transfers appeared on a periodic statement and whether notice was provided within 60 days.
+- Whether extenuating circumstances warrant an extension.
+- Whether state law or an agreement imposes a lower liability amount.
+
+## **2. Scope and assumptions**
+
+The following stories translate only the supplied text of § 1005.6 into system behavior.
+
+**Important implementation distinction:** The platform should calculate the maximum liability permitted by this regulation, not automatically conclude that the consumer owes that amount. The regulation establishes liability ceilings and conditions, not an obligation to impose the maximum.
+
+The platform should retain the inputs and calculation outcomes supporting each liability determination.
+
+# **3. Epic: Determine consumer eligibility for liability**
+
+## **US-001: Validate required disclosures**
+
+**User story**
+
+As a disputes analyst, I want the platform to verify that the financial institution provided the required disclosures before assigning consumer liability, so that liability is not imposed when the regulatory conditions are not satisfied.
+
+**Regulatory reference:** § 1005.6(a)
+
+### **Acceptance criteria**
+
+**Scenario 1: Required disclosures have been provided**
+
+```
+Given an unauthorized electronic fund transfer involving a consumer's account
+And the financial institution provided the disclosures required by § 1005.7(b)(1)
+And the financial institution provided the disclosures required by § 1005.7(b)(2)
+And the financial institution provided the disclosures required by § 1005.7(b)(3)
+When the platform evaluates consumer liability
+Then the disclosure condition for consumer liability is satisfied
+And the platform may proceed to evaluate the applicable liability limitations
+```
+
+**Scenario 2: One or more required disclosures were not provided**
+
+```
+Given an unauthorized electronic fund transfer involving a consumer's account
+And one or more disclosures required by § 1005.7(b)(1), (2), or (3) were not provided
+When the platform evaluates consumer liability
+Then the consumer shall not be held liable under § 1005.6
+And the maximum consumer liability shall be recorded as $0
+```
+
+## **US-002: Validate access device conditions**
+
+**User story**
+
+As a disputes analyst, I want the platform to validate access device requirements when an unauthorized transfer involves an access device, so that consumer liability is only considered when the regulatory conditions are satisfied.
+
+**Regulatory reference:** § 1005.6(a)
+
+### **Acceptance criteria**
+
+**Scenario 1: Accepted access device with consumer identification capability**
+
+```
+Given an unauthorized electronic fund transfer involved an access device
+And the access device was accepted by the financial institution
+And the financial institution provided a means to identify the consumer to whom the device was issued
+When the platform evaluates consumer liability
+Then the access device condition for consumer liability is satisfied
+And the platform may proceed to evaluate liability limitations
+```
+
+**Scenario 2: Access device was not accepted**
+
+```
+Given an unauthorized electronic fund transfer involved an access device
+And the access device was not accepted by the financial institution
+When the platform evaluates consumer liability
+Then the consumer shall not be held liable under § 1005.6
+And the maximum consumer liability shall be recorded as $0
+```
+
+**Scenario 3: No means of identifying the consumer**
+
+```
+Given an unauthorized electronic fund transfer involved an access device
+And the access device was accepted
+And the financial institution did not provide a means to identify the consumer to whom the device was issued
+When the platform evaluates consumer liability
+Then the consumer shall not be held liable under § 1005.6
+And the maximum consumer liability shall be recorded as $0
+```
+
+**Scenario 4: Unauthorized transfer did not involve an access device**
+
+```
+Given an unauthorized electronic fund transfer did not involve an access device
+And the required disclosures were provided
+When the platform evaluates consumer liability
+Then the access device acceptance and identification conditions shall not be applied
+And the platform shall proceed to evaluate the applicable liability limitations
+```
+
+# **4. Epic: Calculate liability based on two-business-day notification**
+
+## **US-003: Calculate liability when timely notice is provided**
+
+**User story**
+
+As a disputes analyst, I want the platform to calculate consumer liability when the consumer reports the loss or theft of an access device within two business days of learning about it, so that liability does not exceed the applicable regulatory limit.
+
+**Regulatory reference:** § 1005.6(b)(1)
+
+### **Acceptance criteria**
+
+**Scenario 1: Unauthorized transfers exceed $50 before notice**
+
+```
+Given the consumer learned of the loss or theft of an access device
+And the consumer notified the financial institution within two business days
+And unauthorized transfers occurred before notice
+And the total unauthorized transfers before notice exceed $50
+When the platform calculates consumer liability
+Then the maximum consumer liability shall be $50
+```
+
+**Scenario 2: Unauthorized transfers are less than $50 before notice**
+
+```
+Given the consumer learned of the loss or theft of an access device
+And the consumer notified the financial institution within two business days
+And unauthorized transfers totaling $30 occurred before notice
+When the platform calculates consumer liability
+Then the maximum consumer liability shall be $30
+```
+
+**Scenario 3: No unauthorized transfers occurred before notice**
+
+```
+Given the consumer learned of the loss or theft of an access device
+And the consumer notified the financial institution within two business days
+And no unauthorized transfers occurred before notice
+When the platform calculates consumer liability
+Then the maximum consumer liability shall be $0
+```
+
+**Scenario 4: Calculate the lesser of $50 or transfers before notice**
+
+```
+Given the consumer provided notice within two business days
+And unauthorized transfers totaling $120 occurred before notice
+When the platform calculates consumer liability
+Then the maximum consumer liability shall be the lesser of $50 or $120
+And the maximum consumer liability shall be $50
+```
+
+## **US-004: Calculate liability when timely notice is not provided**
+
+**User story**
+
+As a disputes analyst, I want the platform to calculate consumer liability when the consumer does not notify the financial institution within two business days of learning of the loss or theft of an access device, so that the liability calculation reflects the applicable regulatory limits.
+
+**Regulatory reference:** § 1005.6(b)(2)
+
+### **Acceptance criteria**
+
+**Scenario 1: Calculate liability when transfers occur during the first two business days**
+
+```
+Given the consumer learned of the loss or theft of an access device
+And the consumer failed to notify the financial institution within two business days
+And unauthorized transfers totaling $30 occurred within the two-business-day period
+When the platform calculates consumer liability
+Then the first liability component shall be $30
+```
+
+**Scenario 2: First two-business-day transfers exceed $50**
+
+```
+Given the consumer learned of the loss or theft of an access device
+And the consumer failed to notify the financial institution within two business days
+And unauthorized transfers totaling $100 occurred within the two-business-day period
+When the platform calculates consumer liability
+Then the first liability component shall be $50
+```
+
+**Scenario 3: Include transfers after two business days when the institution establishes causation**
+
+```
+Given the consumer failed to notify the financial institution within two business days
+And unauthorized transfers totaling $40 occurred within the two-business-day period
+And unauthorized transfers totaling $200 occurred after the close of two business days and before notice
+And the financial institution establishes that the post-two-business-day transfers would not have occurred if the consumer had provided notice within two business days
+When the platform calculates consumer liability
+Then the first liability component shall be $40
+And the second liability component shall be $200
+And the total calculated amount shall be $240
+And the maximum consumer liability shall be $240
+```
+
+**Scenario 4: Exclude post-two-business-day transfers when causation is not established**
+
+```
+Given the consumer failed to notify the financial institution within two business days
+And unauthorized transfers totaling $40 occurred within the two-business-day period
+And unauthorized transfers totaling $200 occurred after the close of two business days and before notice
+And the financial institution does not establish that the post-two-business-day transfers would not have occurred if the consumer had provided notice within two business days
+When the platform calculates consumer liability
+Then the first liability component shall be $40
+And the second liability component shall be $0
+And the maximum consumer liability shall be $40
+```
+
+**Scenario 5: Apply the $500 maximum liability cap**
+
+```
+Given the consumer failed to notify the financial institution within two business days
+And unauthorized transfers totaling $50 occurred within the two-business-day period
+And unauthorized transfers totaling $600 occurred after the close of two business days and before notice
+And the financial institution establishes that the post-two-business-day transfers would not have occurred if the consumer had provided notice within two business days
+When the platform calculates consumer liability
+Then the calculated liability components shall total $650
+And the maximum consumer liability shall be $500
+```
+
+**Scenario 6: Calculate liability using the lesser of $50 or first-period transfers**
+
+```
+Given the consumer failed to notify the financial institution within two business days
+And unauthorized transfers totaling $20 occurred within the two-business-day period
+And no additional qualifying transfers occurred before notice
+When the platform calculates consumer liability
+Then the maximum consumer liability shall be $20
+```
+
+# **5. Epic: Apply periodic statement notification requirements**
+
+## **US-005: Calculate liability for unauthorized transfers reported within 60 days**
+
+**User story**
+
+As a disputes analyst, I want the platform to determine whether the consumer reported an unauthorized transfer appearing on a periodic statement within 60 days of statement transmittal, so that subsequent unauthorized transfers are evaluated correctly.
+
+**Regulatory reference:** § 1005.6(b)(3)
+
+### **Acceptance criteria**
+
+**Scenario 1: Consumer reports within 60 days**
+
+```
+Given an unauthorized electronic fund transfer appears on a periodic statement
+And the financial institution transmitted the statement
+And the consumer reports the unauthorized transfer within 60 days of statement transmittal
+When the platform evaluates liability for subsequent unauthorized transfers
+Then the consumer shall not be held liable for subsequent transfers under § 1005.6(b)(3)
+```
+
+**Scenario 2: Consumer reports after 60 days**
+
+```
+Given an unauthorized electronic fund transfer appears on a periodic statement
+And the financial institution transmitted the statement
+And the consumer fails to report the unauthorized transfer within 60 days of statement transmittal
+When the platform evaluates consumer liability
+Then the platform shall evaluate unauthorized transfers occurring after the close of the 60-day period and before notice
+And the platform shall consider only transfers the financial institution establishes would not have occurred if the consumer had notified the institution within the 60-day period
+```
+
+**Scenario 3: Subsequent transfers are established as preventable**
+
+```
+Given an unauthorized electronic fund transfer appeared on a periodic statement
+And the consumer failed to report it within 60 days of statement transmittal
+And unauthorized transfers totaling $300 occurred after the close of the 60-day period and before notice
+And the financial institution establishes that these transfers would not have occurred if the consumer had notified the institution within the 60-day period
+When the platform calculates liability under § 1005.6(b)(3)
+Then the maximum consumer liability for these subsequent transfers shall be $300
+```
+
+**Scenario 4: Subsequent transfers are not established as preventable**
+
+```
+Given an unauthorized electronic fund transfer appeared on a periodic statement
+And the consumer failed to report it within 60 days of statement transmittal
+And unauthorized transfers totaling $300 occurred after the close of the 60-day period and before notice
+And the financial institution does not establish that these transfers would not have occurred if the consumer had notified the institution within the 60-day period
+When the platform calculates liability under § 1005.6(b)(3)
+Then the maximum consumer liability for these subsequent transfers shall be $0
+```
+
+## **US-006: Combine periodic statement liability with access device liability**
+
+**User story**
+
+As a disputes analyst, I want the platform to account for applicable two-business-day access device liability in addition to periodic statement liability, so that the calculation reflects both applicable provisions of Regulation E.
+
+**Regulatory reference:** § 1005.6(b)(3)
+
+### **Acceptance criteria**
+
+**Scenario 1: Access device is involved and timely notice was provided under the two-day rule**
+
+```
+Given an unauthorized transfer appears on a periodic statement
+And the consumer reports the transfer after 60 days of statement transmittal
+And an access device was involved
+And the consumer notified the financial institution within two business days after learning of the loss or theft
+When the platform calculates consumer liability
+Then the platform shall evaluate the applicable liability under § 1005.6(b)(1)
+And the platform shall evaluate liability for qualifying subsequent transfers under § 1005.6(b)(3)
+```
+
+**Scenario 2: Access device is involved and timely notice was not provided under the two-day rule**
+
+```
+Given an unauthorized transfer appears on a periodic statement
+And the consumer reports the transfer after 60 days of statement transmittal
+And an access device was involved
+And the consumer failed to notify the financial institution within two business days after learning of the loss or theft
+When the platform calculates consumer liability
+Then the platform shall evaluate the applicable liability under § 1005.6(b)(2)
+And the platform shall evaluate liability for qualifying subsequent transfers under § 1005.6(b)(3)
+```
+
+**Scenario 3: Access device was not involved**
+
+```
+Given an unauthorized transfer appears on a periodic statement
+And the consumer reports the transfer after 60 days of statement transmittal
+And an access device was not involved
+When the platform calculates consumer liability
+Then the platform shall evaluate liability under § 1005.6(b)(3)
+And the platform shall not apply access device liability under § 1005.6(b)(1) or § 1005.6(b)(2)
+```
+
+# **6. Epic: Handle extensions for extenuating circumstances**
+
+## **US-007: Extend notification time limits**
+
+**User story**
+
+As a disputes analyst, I want the platform to support extensions of notification time limits when the consumer's delay was caused by extenuating circumstances, so that the consumer's liability is evaluated using a reasonable extended period.
+
+**Regulatory reference:** § 1005.6(b)(4)
+
+### **Acceptance criteria**
+
+**Scenario 1: Extenuating circumstances justify an extension**
+
+```
+Given the consumer did not notify the financial institution within the applicable notification period
+And the consumer's delay was due to extenuating circumstances
+When the platform evaluates the notification period
+Then the institution shall extend the applicable time limit
+And the extension shall be to a reasonable period
+And the platform shall evaluate timeliness using the extended period
+```
+
+**Scenario 2: Delay is not due to extenuating circumstances**
+
+```
+Given the consumer did not notify the financial institution within the applicable notification period
+And the consumer's delay was not due to extenuating circumstances
+When the platform evaluates the notification period
+Then the applicable notification time limit shall not be extended under § 1005.6(b)(4)
+```
+
+**Scenario 3: Extension applies to the two-business-day notification period**
+
+```
+Given the consumer's delay in reporting the loss or theft of an access device was due to extenuating circumstances
+And the institution determines that an extended period is reasonable
+And the consumer provides notice within that extended period
+When the platform calculates consumer liability
+Then the platform shall evaluate timeliness using the extended period
+And the platform shall apply the applicable liability provision based on that determination
+```
+
+**Scenario 4: Extension applies to the periodic statement notification period**
+
+```
+Given the consumer's delay in reporting an unauthorized transfer appearing on a periodic statement was due to extenuating circumstances
+And the institution determines that an extended period is reasonable
+And the consumer provides notice within that extended period
+When the platform evaluates liability for subsequent transfers
+Then the platform shall evaluate the notification period using the reasonable extension
+```
+
+# **7. Epic: Determine when notice is considered provided**
+
+## **US-008: Support acceptable notification methods**
+
+**User story**
+
+As a disputes analyst, I want the platform to recognize the notification methods permitted by Regulation E, so that consumer notice is evaluated based on the method used rather than whether a particular employee received it.
+
+**Regulatory reference:** § 1005.6(b)(5)(i)–(ii)
+
+### **Acceptance criteria**
+
+**Scenario 1: Notice provided in person**
+
+```
+Given the consumer takes steps reasonably necessary to provide the institution with pertinent information
+And the consumer provides notice in person
+When the platform evaluates the notice
+Then the notice shall be considered given
+```
+
+**Scenario 2: Notice provided by telephone**
+
+```
+Given the consumer takes steps reasonably necessary to provide the institution with pertinent information
+And the consumer provides notice by telephone
+When the platform evaluates the notice
+Then the notice shall be considered given
+```
+
+**Scenario 3: Notice provided in writing**
+
+```
+Given the consumer takes steps reasonably necessary to provide the institution with pertinent information
+And the consumer provides notice in writing
+When the platform evaluates the notice
+Then the notice shall be considered given in accordance with the applicable written notice timing rule
+```
+
+**Scenario 4: Particular employee does not receive notice**
+
+```
+Given the consumer takes steps reasonably necessary to provide the institution with pertinent information
+And the consumer provides notice to the financial institution
+But a particular employee or agent of the institution does not actually receive the information
+When the platform evaluates the notice
+Then the notice shall still be considered given
+```
+
+## **US-009: Determine written notice date**
+
+**User story**
+
+As a disputes analyst, I want the platform to use the mailing or transmission date for written notices, so that notification timeliness is calculated using the date specified by Regulation E.
+
+**Regulatory reference:** § 1005.6(b)(5)(iii)
+
+### **Acceptance criteria**
+
+**Scenario 1: Notice mailed**
+
+```
+Given the consumer provides written notice
+And the consumer mails the notice to the financial institution
+When the platform determines the notice date
+Then the notice date shall be the date the consumer mailed the notice
+```
+
+**Scenario 2: Notice delivered through another usual transmission method**
+
+```
+Given the consumer provides written notice
+And the consumer delivers the notice for transmission to the financial institution through another usual means
+When the platform determines the notice date
+Then the notice date shall be the date the consumer delivered the notice for transmission
+```
+
+**Scenario 3: Institution becomes aware of circumstances indicating unauthorized activity**
+
+```
+Given the financial institution becomes aware of circumstances
+And those circumstances lead to a reasonable belief that an unauthorized transfer to or from the consumer's account has been or may be made
+When the platform evaluates notification
+Then the platform may recognize notice as constructively given
+```
+
+# **8. Epic: Apply lower liability under state law or agreement**
+
+## **US-010: Apply the lower liability limit**
+
+**User story**
+
+As a disputes analyst, I want the platform to compare the liability permitted under Regulation E with any lower liability imposed by state law or an agreement between the consumer and financial institution, so that the consumer's liability does not exceed the lower amount.
+
+**Regulatory reference:** § 1005.6(b)(6)
+
+### **Acceptance criteria**
+
+**Scenario 1: State law imposes lower liability**
+
+```
+Given the maximum consumer liability calculated under Regulation E is $500
+And applicable state law imposes consumer liability of $100
+When the platform determines final consumer liability
+Then the maximum consumer liability shall not exceed $100
+```
+
+**Scenario 2: Consumer agreement imposes lower liability**
+
+```
+Given the maximum consumer liability calculated under Regulation E is $500
+And an agreement between the consumer and financial institution imposes consumer liability of $50
+When the platform determines final consumer liability
+Then the maximum consumer liability shall not exceed $50
+```
+
+**Scenario 3: Both state law and agreement impose lower liability**
+
+```
+Given the maximum consumer liability calculated under Regulation E is $500
+And applicable state law imposes consumer liability of $100
+And an agreement between the consumer and financial institution imposes consumer liability of $50
+When the platform determines final consumer liability
+Then the maximum consumer liability shall not exceed the lower applicable amount
+And the maximum consumer liability shall be $50
+```
+
+**Scenario 4: State law and agreement do not impose lower liability**
+
+```
+Given the maximum consumer liability calculated under Regulation E is $500
+And applicable state law does not impose lower liability
+And the agreement between the consumer and financial institution does not impose lower liability
+When the platform determines final consumer liability
+Then the maximum consumer liability shall remain $500
+```
+
+# **9. Epic: Liability calculation and auditability**
+
+## **US-011: Calculate and retain liability components**
+
+**User story**
+
+As a disputes analyst, I want the platform to calculate and retain each component of consumer liability separately, so that the final liability amount can be explained and reviewed.
+
+**Regulatory reference:** § 1005.6(b)(1)–(6)
+
+### **Acceptance criteria**
+
+**Scenario 1: Retain two-business-day calculation components**
+
+```
+Given an unauthorized transfer involves an access device
+And the consumer failed to notify the financial institution within two business days
+When the platform calculates consumer liability
+Then the platform shall retain the amount of unauthorized transfers within two business days
+And the platform shall retain the amount of qualifying transfers after two business days and before notice
+And the platform shall retain the resulting liability amount before application of the $500 cap
+And the platform shall retain the resulting maximum liability after application of the cap
+```
+
+**Scenario 2: Retain periodic statement calculation components**
+
+```
+Given an unauthorized transfer appeared on a periodic statement
+And the consumer failed to report it within 60 days of statement transmittal
+When the platform calculates consumer liability
+Then the platform shall retain the statement transmittal date
+And the platform shall retain the end of the applicable 60-day period
+And the platform shall retain the amount of qualifying subsequent transfers
+And the platform shall retain the resulting liability amount
+```
+
+**Scenario 3: Retain the notice determination**
+
+```
+Given the consumer has notified the financial institution of unauthorized activity
+When the platform evaluates notification
+Then the platform shall retain the notification method
+And the platform shall retain the date notice is considered given
+And the platform shall retain the applicable notification period
+And the platform shall retain whether the notice was timely
+```
+
+**Scenario 4: Retain the basis for an extension**
+
+```
+Given the consumer's notification delay was due to extenuating circumstances
+And the institution extends the notification period to a reasonable period
+When the platform calculates consumer liability
+Then the platform shall retain that an extension was applied
+And the platform shall retain the extended notification period
+And the platform shall use the extended period in the liability determination
+```
+
+**Scenario 5: Retain the basis for lower liability**
+
+```
+Given the maximum liability has been calculated under Regulation E
+And state law or an agreement imposes lower liability
+When the platform determines final maximum consumer liability
+Then the platform shall retain the applicable lower liability amount
+And the platform shall retain the resulting final maximum liability
+```
+
+# **10. Consolidated business rules**
+
+The following rules provide a concise reference for development and QA.
+
+| Rule ID | Regulatory reference | Business rule                                                                                                                                            |
+| ------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| BR-001  | § 1005.6(a)          | Consumer liability is permitted only when required disclosures were provided.                                                                            |
+| BR-002  | § 1005.6(a)          | When an access device is involved, it must be accepted and the institution must have provided a means of identifying the consumer to whom it was issued. |
+| BR-003  | § 1005.6(b)(1)       | Timely notice within two business days limits liability to the lesser of $50 or transfers before notice.                                                 |
+| BR-004  | § 1005.6(b)(2)       | Untimely notice within two business days limits liability to the lesser of $500 or the sum of the two applicable transfer components.                    |
+| BR-005  | § 1005.6(b)(2)(i)    | The first component is the lesser of $50 or unauthorized transfers within two business days.                                                             |
+| BR-006  | § 1005.6(b)(2)(ii)   | The second component includes qualifying transfers after two business days and before notice, provided the institution establishes preventability.       |
+| BR-007  | § 1005.6(b)(3)       | Failure to report a statement transfer within 60 days may result in liability for qualifying subsequent transfers.                                       |
+| BR-008  | § 1005.6(b)(3)       | The institution must establish that subsequent transfers would not have occurred had the consumer notified it within 60 days.                            |
+| BR-009  | § 1005.6(b)(3)       | Applicable access device liability under (b)(1) or (b)(2) may also apply.                                                                                |
+| BR-010  | § 1005.6(b)(4)       | Extenuating circumstances require an extension to a reasonable notification period.                                                                      |
+| BR-011  | § 1005.6(b)(5)       | Notice is given when the consumer takes steps reasonably necessary to provide pertinent information.                                                     |
+| BR-012  | § 1005.6(b)(5)       | Notice may be provided in person, by telephone, or in writing.                                                                                           |
+| BR-013  | § 1005.6(b)(5)       | Written notice is considered given when mailed or delivered for transmission through another usual means.                                                |
+| BR-014  | § 1005.6(b)(5)       | Notice may be constructively given when the institution becomes aware of circumstances supporting a reasonable belief of unauthorized activity.          |
+| BR-015  | § 1005.6(b)(6)       | State law or an agreement imposing lower liability takes precedence over the Regulation E liability amount.                                              |
+
+# **11. Liability calculation reference**
+
+The following formulas summarize the core calculations.
+
+**A. Timely notice – § 1005.6(b)(1)**
+
+\\[ L = \min(50,\ T\_{\text{before notice}}) \\]
+
+**B. Untimely notice – § 1005.6(b)(2)**
+
+\\[ L = \min(500,\ A+B) \\]
+
+Where:
+
+\\[ A = \min(50,\ T\_{\text{within 2 business days}}) \\]
+
+\\[ B = \begin{cases} T\_{\text{after 2 days, before notice}}, & \text{if preventability established}\\\ 0, & \text{otherwise} \end{cases} \\]
+
+**C. Periodic statement – § 1005.6(b)(3)**
+
+\\[ L\_{60} = T\_{\text{after 60 days, before notice}} \\]
+
+Only transfers the institution establishes would not have occurred with timely notification are included.
+
+When an access device is involved, applicable liability under (b)(1) or (b)(2) may also apply.
+
+**D. Lower state law or agreement liability – § 1005.6(b)(6)**
+
+\\[ L\_{\text{final}} = \min(L\_{\text{applicable}},L\_{\text{state}},L\_{\text{agreement}}) \\]
+
+Where state law or agreement imposes no lower liability, it should not reduce the applicable regulatory amount.
+
+# **12. Key implementation considerations and open design decisions**
+
+The supplied regulatory text establishes the rules above but does not define every operational detail. The following items should be resolved during solution design rather than treated as additional regulatory requirements.
+
+| Topic                           | Design consideration                                                                                                                    |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Business-day calculation        | Define the system's business-day calendar and how the two-business-day period is calculated.                                            |
+| Date boundaries                 | Define precise processing of notice received at the close of the second business day and the 60th day.                                  |
+| Multiple unauthorized transfers | Support a series of related unauthorized transfers and associate each transaction with the appropriate time period.                     |
+| Causation evidence              | Capture whether the institution established that later transfers would not have occurred with timely notice.                            |
+| Extenuating circumstances       | Provide a mechanism to determine and document a reasonable extension.                                                                   |
+| Constructive notice             | Support a notification date based on the institution's awareness of circumstances indicating potential unauthorized activity.           |
+| State law and agreements        | Support determination of applicable lower liability amounts.                                                                            |
+| Overlapping liability periods   | Define how the platform combines periodic statement liability and applicable access device liability without double-counting transfers. |
+
+**Particularly important:** § 1005.6(b)(3) allows the applicable access device liability under (b)(1) or (b)(2) in addition to periodic statement liability. The platform should therefore maintain transaction-level attribution across the relevant periods and avoid assuming that the two calculations can simply be added without considering overlapping transfers.
+
+## **13. Recommended delivery breakdown**
+
+| Release   | Stories                | Primary capability                         |
+| --------- | ---------------------- | ------------------------------------------ |
+| Release 1 | US-001, US-002         | Eligibility and liability prerequisites    |
+| Release 2 | US-003, US-004         | Two-business-day liability calculation     |
+| Release 3 | US-005, US-006         | Periodic statement liability               |
+| Release 4 | US-007, US-008, US-009 | Extensions and notification handling       |
+| Release 5 | US-010                 | State law and agreement liability          |
+| Release 6 | US-011                 | Calculation traceability and audit support |
+
+**Business analyst recommendation:** Prioritize US-003 through US-006 for detailed solution design and QA scenario development. These stories contain the most significant calculation complexity, particularly the interaction between the two-business-day rule, the 60-day periodic statement rule, causation evidence, and the applicable liability ceilings.
+
+The acceptance criteria above are based exclusively on the supplied text of 12 CFR § 1005.6. They do not introduce requirements from other Regulation E provisions or external interpretations.

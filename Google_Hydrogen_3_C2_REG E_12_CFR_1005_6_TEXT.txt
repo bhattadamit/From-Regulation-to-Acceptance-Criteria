@@ -1,0 +1,287 @@
+Below is the backlog of user stories and Gherkin acceptance criteria for implementing Regulation E (12 CFR § 1005.6) consumer liability logic in the disputes platform, mapped directly to the provided regulatory text.
+
+---
+
+### Epic: Regulation E Unauthorized Electronic Fund Transfer (EFT) Liability Engine
+
+---
+
+### Story 1: Validate Prerequisites for Holding a Consumer Liable (§ 1005.6(a))
+
+**As a** Disputes Adjudication Engine
+
+**I want to** verify whether the regulatory prerequisites for consumer liability have been met
+
+**So that** the bank does not hold a consumer liable for unauthorized EFTs when required disclosures or access device conditions are missing.
+
+```gherkin
+Feature: Prerequisites for Consumer Liability (§ 1005.6(a))
+
+  Scenario: Required § 1005.7(b)(1)-(3) disclosures were not provided
+    Given an unauthorized EFT claim has been submitted on a consumer account
+    And the bank has not provided the disclosures required by § 1005.7(b)(1), (2), and (3)
+    When the liability calculation engine evaluates the claim
+    Then the consumer's maximum liability must be set to $0.00
+    And the liability evaluation must terminate without applying § 1005.6(b) tiers
+
+  Scenario: Access device was not an accepted access device
+    Given an unauthorized EFT claim involves an access device
+    And the bank has provided the disclosures required by § 1005.7(b)(1), (2), and (3)
+    And the access device is not an accepted access device
+    When the liability calculation engine evaluates the claim
+    Then the consumer's maximum liability must be set to $0.00
+
+  Scenario: Bank failed to provide a means to identify the consumer
+    Given an unauthorized EFT claim involves an accepted access device
+    And the bank has provided the disclosures required by § 1005.7(b)(1), (2), and (3)
+    And the bank did not provide a means to identify the consumer to whom the access device was issued
+    When the liability calculation engine evaluates the claim
+    Then the consumer's maximum liability must be set to $0.00
+
+  Scenario: All prerequisites are met for an access device transfer
+    Given an unauthorized EFT claim involves an accepted access device
+    And the bank has provided the disclosures required by § 1005.7(b)(1), (2), and (3)
+    And the bank provided a means to identify the consumer to whom the access device was issued
+    When the liability calculation engine evaluates the claim
+    Then the claim proceeds to liability tier calculation under § 1005.6(b)
+
+  Scenario: All prerequisites are met for a non-access device transfer
+    Given an unauthorized EFT claim does not involve an access device
+    And the bank has provided the disclosures required by § 1005.7(b)(1), (2), and (3)
+    When the liability calculation engine evaluates the claim
+    Then the claim proceeds to periodic statement liability evaluation under § 1005.6(b)(3)
+
+```
+
+---
+
+### Story 2: Determine Effective Notice Timestamp and Channel (§ 1005.6(b)(5))
+
+**As a** Disputes Intake & Case Management Module
+
+**I want to** capture and normalize the consumer's notice timestamp based on the communication channel or constructive notice triggers
+
+**So that** reporting deadlines (2-business-day and 60-day windows) are measured accurately against the legally effective notice time.
+
+```gherkin
+Feature: Notice Receipt and Effective Timestamp (§ 1005.6(b)(5))
+
+  Scenario: Consumer provides notice in person or by telephone
+    Given a consumer takes steps reasonably necessary to provide pertinent information regarding an unauthorized transfer or lost/stolen access device
+    And the notice is delivered in person or by telephone
+    When the dispute case is logged
+    Then the effective notice timestamp is recorded as the time the consumer provided the information, regardless of whether a specific employee or agent actually received it
+
+  Scenario: Consumer provides notice in writing via mail or usual transmission
+    Given a consumer sends written notice with pertinent information regarding an unauthorized transfer or lost/stolen access device
+    When the dispute case is logged
+    Then the effective notice timestamp is recorded as the time the consumer mailed the notice or delivered it for transmission by any other usual means
+
+  Scenario: Bank receives constructive notice of potential unauthorized activity
+    Given the bank becomes aware of circumstances leading to a reasonable belief that an unauthorized transfer to or from the consumer's account has been or may be made
+    And the consumer has not yet contacted the bank
+    When the bank's monitoring or operational systems log this awareness
+    Then the effective notice timestamp may be recorded as the time the bank became aware of those circumstances
+
+```
+
+---
+
+### Story 3: Apply Extenuating Circumstances Time Extensions (§ 1005.6(b)(4))
+
+**As a** Disputes Specialist
+
+**I want to** record extenuating circumstances that delayed a consumer's notice and extend the regulatory reporting windows to a reasonable period
+
+**So that** consumers are not penalized for reporting delays outside their control.
+
+```gherkin
+Feature: Extension of Time Limits for Extenuating Circumstances (§ 1005.6(b)(4))
+
+  Scenario: Consumer delay is due to extenuating circumstances
+    Given a consumer reported a lost/stolen access device after 2 business days or an unauthorized transfer on a periodic statement after 60 days
+    And the Disputes Specialist documents that the delay was due to extenuating circumstances
+    When the specialist specifies an extended reasonable deadline date
+    Then the system must evaluate timeliness against the extended reasonable period instead of the standard 2-business-day or 60-day cutoff
+    And if the effective notice timestamp falls within the extended reasonable period, the notice must be treated as timely
+
+  Scenario: No extenuating circumstances exist
+    Given a consumer reported a lost/stolen access device or unauthorized transfer
+    And no extenuating circumstances are documented
+    When the liability calculation engine evaluates timeliness
+    Then the system must enforce the strict 2-business-day and 60-day statutory windows
+
+```
+
+---
+
+### Story 4: Calculate Liability for Access Device Loss/Theft with Timely Notice (§ 1005.6(b)(1))
+
+**As a** Disputes Adjudication Engine
+
+**I want to** cap consumer liability at the lesser of $50 or the pre-notice unauthorized transfer amount when notice is given within 2 business days
+
+**So that** timely reporters receive the statutory $50 liability cap.
+
+```gherkin
+Feature: Timely Notice of Lost or Stolen Access Device (§ 1005.6(b)(1))
+
+  Scenario: Timely notice given and unauthorized transfers exceed $50
+    Given all § 1005.6(a) liability prerequisites are met for an access device
+    And the consumer notifies the bank within 2 business days (or extended reasonable period) after learning of the loss or theft of the access device
+    And unauthorized transfers occurring before the effective notice timestamp total $120.00
+    When the liability calculation engine calculates consumer liability
+    Then the consumer's liability must be $50.00
+
+  Scenario: Timely notice given and unauthorized transfers are less than $50
+    Given all § 1005.6(a) liability prerequisites are met for an access device
+    And the consumer notifies the bank within 2 business days (or extended reasonable period) after learning of the loss or theft of the access device
+    And unauthorized transfers occurring before the effective notice timestamp total $35.00
+    When the liability calculation engine calculates consumer liability
+    Then the consumer's liability must be $35.00
+
+  Scenario: Timely notice given before any unauthorized transfers occur
+    Given all § 1005.6(a) liability prerequisites are met for an access device
+    And the consumer notifies the bank within 2 business days (or extended reasonable period) after learning of the loss or theft
+    And $0.00 in unauthorized transfers occurred before the effective notice timestamp
+    When the liability calculation engine calculates consumer liability
+    Then the consumer's liability must be $0.00
+
+```
+
+---
+
+### Story 5: Calculate Liability for Access Device Loss/Theft Without Timely Notice (§ 1005.6(b)(2))
+
+**As a** Disputes Adjudication Engine
+
+**I want to** calculate consumer liability up to a $500 cap when a consumer fails to notify the bank within 2 business days of learning of a lost or stolen access device
+
+**So that** the tiered liability formula and bank preventability burden are accurately applied.
+
+```gherkin
+Feature: Untimely Notice of Lost or Stolen Access Device (§ 1005.6(b)(2))
+
+  Scenario: Untimely notice with transfers in both windows and bank establishes preventability (capped at $500)
+    Given all § 1005.6(a) liability prerequisites are met for an access device
+    And the consumer fails to notify the bank within 2 business days (and no extenuating circumstances extend the window) after learning of the loss or theft
+    And unauthorized transfers within the first 2 business days total $80.00
+    And unauthorized transfers after the close of 2 business days and before effective notice total $600.00
+    And the bank establishes that the $600.00 in transfers would not have occurred had the consumer notified the bank within the 2-business-day period
+    When the liability calculation engine calculates consumer liability
+    Then Tier 1 liability (first 2 business days) is calculated as the lesser of $50.00 or $80.00 ($50.00)
+    And Tier 2 liability (after 2 business days, before notice) is $600.00
+    And total combined liability ($650.00) is capped at the lesser of $500.00 or $650.00, resulting in $500.00 consumer liability
+
+  Scenario: Untimely notice with total calculated liability under $500
+    Given all § 1005.6(a) liability prerequisites are met for an access device
+    And the consumer fails to notify the bank within 2 business days after learning of the loss or theft
+    And unauthorized transfers within the first 2 business days total $30.00
+    And unauthorized transfers after the close of 2 business days and before effective notice total $200.00
+    And the bank establishes that the $200.00 in transfers would not have occurred had the consumer notified the bank within the 2-business-day period
+    When the liability calculation engine calculates consumer liability
+    Then Tier 1 liability is $30.00 (lesser of $50.00 or $30.00)
+    And Tier 2 liability is $200.00
+    And total consumer liability is $230.00
+
+  Scenario: Bank fails to establish that post-2-day transfers would have been prevented
+    Given all § 1005.6(a) liability prerequisites are met for an access device
+    And the consumer fails to notify the bank within 2 business days after learning of the loss or theft
+    And unauthorized transfers within the first 2 business days total $100.00
+    And unauthorized transfers after the close of 2 business days and before effective notice total $400.00
+    And the bank does not establish that the $400.00 in transfers would have been prevented had timely notice been given
+    When the liability calculation engine calculates consumer liability
+    Then Tier 2 liability is $0.00
+    And total consumer liability is $50.00 (Tier 1 lesser of $50.00 or $100.00)
+
+```
+
+---
+
+### Story 6: Calculate Liability for Failure to Report Unauthorized Transfers on a Periodic Statement (§ 1005.6(b)(3))
+
+**As a** Disputes Adjudication Engine
+
+**I want to** assess unlimited liability for preventable transfers occurring more than 60 days after periodic statement transmittal (plus any applicable access device liability)
+
+**So that** the 60-day periodic statement rule is enforced for both access-device and non-access-device transfers.
+
+```gherkin
+Feature: Periodic Statement 60-Day Reporting Window (§ 1005.6(b)(3))
+
+  Scenario: Consumer reports unauthorized transfer within 60 days of statement transmittal (no access device)
+    Given all § 1005.6(a) liability prerequisites are met
+    And an unauthorized EFT not involving an access device appears on a transmitted periodic statement
+    And the consumer notifies the bank within 60 days (or extended reasonable period) of the statement transmittal date
+    When the liability calculation engine calculates consumer liability
+    Then the consumer's liability must be $0.00
+
+  Scenario: Consumer fails to report within 60 days and bank establishes preventability (no access device)
+    Given all § 1005.6(a) liability prerequisites are met
+    And an unauthorized EFT of $150.00 not involving an access device appears on a transmitted periodic statement
+    And the consumer notifies the bank 75 days after statement transmittal (with no extenuating circumstances)
+    And additional unauthorized transfers totaling $1,200.00 occurred after the close of the 60-day period and before effective notice
+    And the bank establishes that the $1,200.00 in transfers would not have occurred had the consumer notified the bank within the 60-day period
+    When the liability calculation engine calculates consumer liability
+    Then the consumer's liability for the initial $150.00 transfer is $0.00
+    And the consumer's liability for the post-60-day preventable transfers is $1,200.00
+    And total consumer liability is $1,200.00
+
+  Scenario: Consumer fails to report within 60 days but bank cannot establish preventability
+    Given all § 1005.6(a) liability prerequisites are met
+    And an unauthorized EFT not involving an access device appears on a transmitted periodic statement
+    And the consumer notifies the bank after 60 days of statement transmittal
+    And additional unauthorized transfers totaling $900.00 occurred after the close of the 60-day period and before effective notice
+    And the bank does not establish that the $900.00 in transfers would not have occurred had timely notice been given
+    When the liability calculation engine calculates consumer liability
+    Then the consumer's liability must be $0.00
+
+  Scenario: Unauthorized transfers involve both a lost/stolen access device and failure to report within 60 days
+    Given all § 1005.6(a) liability prerequisites are met for an access device
+    And the consumer fails to report a lost/stolen access device within 2 business days of learning of the loss/theft
+    And the consumer also fails to report an unauthorized transfer appearing on a periodic statement within 60 days of transmittal
+    And $500.00 in preventable unauthorized transfers occur before the close of the 60-day period (subject to § 1005.6(b)(2))
+    And $800.00 in preventable unauthorized transfers occur after the close of the 60-day period and before effective notice
+    When the liability calculation engine calculates consumer liability
+    Then the consumer's liability includes the § 1005.6(b)(2) amount ($500.00) plus the § 1005.6(b)(3) post-60-day preventable amount ($800.00)
+    And total consumer liability is $1,300.00
+
+```
+
+---
+
+### Story 7: Override Statutory Liability with Lower State Law or Account Agreement Limits (§ 1005.6(b)(6))
+
+**As a** Disputes Adjudication Engine
+
+**I want to** compare the calculated Regulation E liability against applicable state law and account agreement liability limits and apply the lowest amount
+
+**So that** the bank honors stricter consumer protections required by state law or contract (e.g., Zero Liability cardholder agreements).
+
+```gherkin
+Feature: State Law or Account Agreement Liability Override (§ 1005.6(b)(6))
+
+  Scenario: Account agreement imposes lower liability than Regulation E (e.g., $0 Zero Liability)
+    Given the Regulation E calculation under § 1005.6(b)(1)-(3) yields a consumer liability of $50.00
+    And the consumer's account agreement imposes a maximum liability of $0.00 for the unauthorized transfer
+    And applicable state law imposes a maximum liability of $50.00
+    When the final liability determination runs
+    Then the consumer's final liability must be capped at $0.00
+
+  Scenario: State law imposes lower liability than Regulation E and account agreement
+    Given the Regulation E calculation under § 1005.6(b)(1)-(3) yields a consumer liability of $500.00
+    And the consumer's account agreement imposes a maximum liability of $500.00
+    And applicable state law imposes a maximum liability of $50.00
+    When the final liability determination runs
+    Then the consumer's final liability must be capped at $50.00
+
+  Scenario: Regulation E imposes lower liability than state law and account agreement
+    Given the Regulation E calculation under § 1005.6(b)(1)-(3) yields a consumer liability of $50.00
+    And applicable state law imposes a maximum liability of $100.00
+    And the consumer's account agreement imposes a maximum liability of $500.00
+    When the final liability determination runs
+    Then the consumer's final liability remains $50.00
+
+```
+
+---

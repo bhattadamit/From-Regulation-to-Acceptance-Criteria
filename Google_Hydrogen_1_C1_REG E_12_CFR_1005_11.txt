@@ -1,0 +1,179 @@
+As a Senior Business Analyst, the following product backlog is structured to implement **12 CFR § 1005.11 (Regulation E Error Resolution)** across our card and ACH disputes platform.
+
+These stories are organized chronologically across the dispute lifecycle: Intake, Investigation & Provisional Credit, Final Determination, and Post-Determination Notice & Reversal.
+
+---
+
+### Epic: Regulation E Error Resolution Compliance (12 CFR § 1005.11)
+
+#### Story 1: Dispute Intake, 60-Day Timeliness Validation & Written Confirmation
+
+**As a** Dispute Intake Specialist (or Digital Self-Service Portal),
+
+**I want** the system to capture an Electronic Fund Transfer (EFT) error claim, evaluate whether it was reported within 60 days of the periodic statement transmittal, and optionally require written confirmation within 10 business days,
+
+**So that** the bank establishes the correct statutory SLA clock and tracks written confirmation requirements per § 1005.11(b).
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Reg E Error Intake and Timeliness Calculation
+
+  Scenario: Consumer submits an oral EFT error claim within 60 days of statement transmittal
+    Given a consumer holds a Reg E-covered consumer deposit account
+    And the periodic statement showing the disputed debit card or ACH transaction was transmitted on "2026-10-01"
+    When the consumer reports the error orally on "2026-11-15" (within 60 calendar days)
+    Then the system creates a Reg E dispute case with status "Open - Under Investigation"
+    And calculates the 10-business-day initial investigation deadline from "2026-11-15"
+    And calculates the 45-calendar-day extended investigation deadline from "2026-11-15"
+    And sets the "Written Confirmation Required" flag to "True" with a 10-business-day due date
+
+  Scenario: Consumer reports an error more than 60 days after statement transmittal
+    Given a periodic statement showing the disputed transaction was transmitted on "2026-08-01"
+    When the consumer reports the error on "2026-10-15" (more than 60 calendar days after statement transmittal)
+    Then the system flags the claim as "Untimely - Beyond 60-Day Window"
+    And suppresses mandatory provisional credit automation
+    And routes the case to a Senior Investigator queue for manual review
+
+```
+
+---
+
+#### Story 2: Extended Investigation Timeframes (New Accounts, POS, and Foreign-Initiated EFTs)
+
+**As a** Compliance Rules Engine,
+
+**I want** to automatically extend the 10-business-day provisional credit window to 20 business days for new accounts, and extend the 45-calendar-day final resolution window to 90 calendar days for new accounts, Point-of-Sale (POS) debit card transactions, or foreign-initiated transfers,
+
+**So that** the bank utilizes the extended investigation windows permitted under § 1005.11(c)(3).
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Extended Statutory Investigation Windows
+
+  Scenario: Dispute involves a new account (within 30 days of first deposit)
+    Given a consumer account received its first deposit on "2026-10-10"
+    And a disputed ACH or debit transaction occurred on "2026-10-25" (within 30 calendar days of first deposit)
+    When the consumer submits a timely Reg E error claim on "2026-11-02"
+    Then the system sets the Provisional Credit / Initial Resolution SLA to 20 business days
+    And sets the Final Investigation Resolution SLA to 90 calendar days
+
+  Scenario: Dispute involves a POS debit card or foreign-initiated transaction on an established account
+    Given a consumer account has been open for more than 30 calendar days
+    And the disputed transaction is tagged with channel "POS_DEBIT" or country_code not equal to "US"
+    When the consumer submits a timely Reg E error claim on "2026-11-02"
+    Then the system sets the Provisional Credit / Initial Resolution SLA to 10 business days
+    And sets the Final Investigation Resolution SLA to 90 calendar days
+
+```
+
+---
+
+#### Story 3: Provisional Credit Calculation, Written Confirmation Gate & Posting
+
+**As a** Disputes Financial Engine,
+
+**I want** to calculate the eligible provisional credit amount (including associated bank fees and lost interest, minus up to $50 if permitted for unauthorized transfers) and post the credit before the 10/20-business-day deadline expires—unless required written confirmation was not timely received,
+
+**So that** the bank complies with § 1005.11(c)(2) when an investigation cannot be completed within the initial window.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Provisional Credit Eligibility and Automated Posting
+
+  Scenario: Investigation remains open at Business Day 9 and written confirmation was received
+    Given a timely Reg E dispute case is in status "Open - Under Investigation" on Business Day 9
+    And written confirmation was either not required or was received within 10 business days of the oral notice
+    And the disputed amount is "$250.00" with "$35.00" in resulting bank overdraft fees
+    When the daily SLA batch job executes
+    Then the system credits the consumer's account for "$285.00" (or "$235.00" if a verified $50 unauthorized-transfer withholding applies)
+    And posts the credit with effective value date matching the original debit date for interest-bearing accounts
+    And generates a "Notice of Provisional Credit" within 2 business days stating the amount, date, and consumer's full use of funds
+
+  Scenario: Consumer fails to provide requested written confirmation within 10 business days
+    Given a timely oral Reg E dispute case required written confirmation by "2026-11-30"
+    And no written confirmation is logged in the system by the end of day on "2026-11-30"
+    When the SLA batch job reaches the provisional credit deadline
+    Then the system withholds provisional credit
+    And keeps the investigation open to complete final resolution within the 45- or 90-calendar-day statutory window
+
+```
+
+---
+
+#### Story 4: Final Resolution — Error Confirmed (Prompt Correction & Notice)
+
+**As a** Dispute Investigator,
+
+**I want** to record a final determination that an error occurred, permanently apply any provisional credit (or issue full credit with refunded fees/interest within 1 business day), and send a written correction notice,
+
+**So that** the consumer is made whole within the strict deadlines of § 1005.11(c)(1) and § 1005.11(c)(2)(iii).
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Confirmed Error Final Resolution
+
+  Scenario: Error confirmed when provisional credit was previously issued
+    Given a Reg E dispute case has an active provisional credit of "$250.00"
+    When the investigator sets the final determination to "Error Occurred - Resolved in Consumer Favor"
+    Then the system converts the provisional credit to a permanent credit immediately
+    And triggers a "Notice of Final Resolution - Error Corrected" to be sent to the consumer within 1 business day (or within the 10/20-business-day initial period if no provisional credit was issued)
+    And updates the case status to "Closed - Error Confirmed"
+
+  Scenario: Error confirmed within the initial 10-business-day window (no prior provisional credit)
+    Given a Reg E dispute case is on Business Day 6 with no provisional credit issued
+    When the investigator sets the final determination to "Error Occurred - Resolved in Consumer Favor"
+    Then the system posts a permanent credit for the disputed amount plus refunded bank fees within 1 business day
+    And generates the written correction notice within 1 business day of correcting the error
+
+```
+
+---
+
+#### Story 5: Final Resolution — No Error (or Different Error) & Provisional Credit Reversal
+
+**As a** Dispute Investigator,
+
+**I want** the system to generate a written explanation of findings (including notice of the consumer's right to request relied-upon documents) within 3 business days of concluding no error occurred, and safely debit back any provisional credit while honoring items for 5 business days,
+
+**So that** the bank complies with § 1005.11(d) without causing unintended bounced checks or overdraft fees.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: No Error Determination and Provisional Credit Reversal
+
+  Scenario: Investigator determines no error occurred after provisional credit was granted
+    Given a Reg E dispute case has an active provisional credit of "$250.00"
+    When the investigator sets the final determination to "No Error Occurred" on "2026-12-10"
+    Then the system generates a "Notice of No Error / Reversal" within 3 business days (by "2026-12-15")
+    And the notice includes the specific explanation of findings, the consumer's right to request copies of documents relied upon, the exact date and amount of the debit reversal, and the 5-business-day overdraft/item-honoring protection notice
+    And schedules the "$250.00" debit reversal upon debiting the account
+    And activates a 5-business-day "Honoring Protection Flag" on the consumer's account starting on the debit date
+
+  Scenario: Third-party check or preauthorized debit presents during the 5-business-day protection window
+    Given a consumer's account has an active 5-business-day "Honoring Protection Flag" following a provisional credit reversal
+    And the account would have had sufficient funds had the "$250.00" provisional credit not been debited
+    When a third-party check or preauthorized ACH debit of "$200.00" presents for payment
+    Then the core banking system honors and pays the "$200.00" item
+    And suppresses any NSF or overdraft fees on that item during the 5-business-day window
+
+```
+
+---
+
+### Summary of Key Statutory Timers for QA / Engineering Reference
+
+| Milestone / Trigger | Standard Window | Extended Window (New Account / POS / Foreign) | Statutory Citation |
+| --- | --- | --- | --- |
+| **Consumer Reporting Window** | 60 calendar days from statement transmittal | 60 calendar days (extended only for extenuating circumstances) | § 1005.11(b)(1)(i) |
+| **Written Confirmation Due** | 10 business days from oral notice | 10 business days from oral notice | § 1005.11(b)(2) |
+| **Initial Investigation / Provisional Credit** | 10 business days | 20 business days *(New Accounts only)* | § 1005.11(c)(1), (c)(3)(i) |
+| **Provisional Credit Notice** | Within 2 business days of crediting | Within 2 business days of crediting | § 1005.11(c)(2)(ii) |
+| **Final Investigation Resolution** | 45 calendar days | 90 calendar days *(New Account, POS, or Foreign)* | § 1005.11(c)(2), (c)(3)(ii) |
+| **Error Correction Posting** | Within 1 business day of determination | Within 1 business day of determination | § 1005.11(c)(1) |
+| **No-Error Written Explanation** | Within 3 business days of conclusion | Within 3 business days of conclusion | § 1005.11(d)(1) |
+| **Item Honoring After Reversal** | 5 business days after notification | 5 business days after notification | § 1005.11(d)(2)(ii) |

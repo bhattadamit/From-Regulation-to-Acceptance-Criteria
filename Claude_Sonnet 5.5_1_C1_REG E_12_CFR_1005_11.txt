@@ -1,0 +1,654 @@
+Reg E Error Resolution (12 CFR 1005.11): User Stories & Acceptance Criteria
+
+Platform: Card and ACH disputes platform
+Prepared by: Business Analysis
+Status: Draft for Compliance, Legal, Ops and Engineering review
+
+I wrote this from my knowledge of the regulation and its commentary, without checking current sources. Compliance/Legal should validate every citation and every time-limit parameter before build.
+
+1. Scope and assumptions
+
+In scope
+
+Consumer accounts covered by Reg E: debit card (POS, ATM, online), ACH debits and credits, P2P and other EFTs, and prepaid accounts that meet the §1005.18(e) conditions.
+Notice intake, timeliness checks, deadline clocks, provisional credit, investigation, resolution, customer notices, reassertion, and recordkeeping evidence.
+
+Out of scope (route elsewhere)
+
+Credit card billing errors (Reg Z, 12 CFR 1026.13)
+Remittance transfers (§1005.33)
+Network chargeback and Nacha return mechanics, except where they interface with the above
+Initial and annual error-resolution disclosures (§§1005.7(b)(10), 1005.8(b))
+
+Assumptions
+
+A1. All time limits are configuration, not code. They are versioned and effective-dated.
+A2. “Business day” follows §1005.2(d) and the bank’s published business-day calendar.
+A3. The “date of receipt” is the date the bank first receives notice through any channel, per policy.
+A4. Merchant quality or service disputes are not Reg E errors. They stay in the chargeback workflow only.
+
+Key parameters
+
+Parameter	Default	Source
+Notice window	60 days after the statement on which the error first appears is sent	§1005.11(b)(1)
+Written confirmation of oral notice	10 business days	§1005.11(b)(2)
+Investigation (standard)	10 business days	§1005.11(c)(1)
+Investigation (extended, provisional credit given)	45 days	§1005.11(c)(2)
+Investigation (new account, POS debit, or foreign-initiated)	20 business days, or 90 days with provisional credit	§1005.11(c)(3)
+Provisional credit notice	2 business days after credit	§1005.11(c)(2)
+Report of results	3 business days after investigation completes	§1005.11(d)
+Correct a confirmed error	1 business day after determination	§1005.11(d)(1)
+Honor third-party items after reversing provisional credit	5 business days	§1005.11(d)(2)
+Evidence retention	2 years	§1005.13
+
+Worked date example (used in the scenarios below)
+
+Notice is received Monday 2026-11-23.
+The bank is closed Thursday 11/26 (Thanksgiving) and open Friday 11/27.
+Saturdays and Sundays are not business days.
+Business day 10 is 2026-12-08, and business day 20 is 2026-12-22.
+45 calendar days is 2027-01-07, and 90 calendar days is 2027-02-21.
+2. Epic A: Intake and classification
+US-01: Capture a notice of error from any channel
+
+As a dispute intake agent (or a customer in self-service),
+I want to log a notice of error whether it arrives by phone, branch, mail, secure message, or digital channel,
+so that the bank’s Reg E clock starts on the correct date.
+Ref: §1005.11(b)(1)
+
+gherkin
+Feature: Notice of error intake
+
+  Scenario: Oral notice with sufficient information
+    Given a customer calls the contact center on 2026-11-23
+    And the customer provides name and account number
+    And the customer states why they believe an error exists and the amount, to the extent possible
+    When the agent saves the dispute
+    Then the platform records the receipt date as 2026-11-23 and the channel as "Phone"
+    And the platform creates a Reg E case with status "Intake"
+    And the Reg E clock is started from the receipt date
+
+  Scenario: Notice lacks enough information to identify the consumer or account
+    Given a notice is received without a name or account number
+    When the agent attempts to save the dispute
+    Then the platform marks the notice "Incomplete"
+    And the platform prompts the agent to collect the missing identifiers
+    And the clock does not start until the notice is sufficient
+    And an audit entry records what was missing and when it was supplied
+
+  Scenario: Consumer cannot state a specific amount or date
+    Given the consumer gives the account, the reason they believe an error exists, and no exact amount
+    When the agent saves the dispute
+    Then the platform accepts the notice as sufficient
+    And the amount field is flagged "To be determined"
+
+  Scenario: Notice arrives through a non-designated channel
+    Given a notice arrives at a branch rather than the dispute contact center
+    When any employee logs it
+    Then the receipt date is the date the branch received it
+US-02: Validate notice timeliness
+
+As a dispute analyst,
+I want the platform to test whether the notice falls inside the 60-day window,
+so that untimely notices are handled consistently and never silently rejected.
+Ref: §1005.11(b)(1)(i), (b)(3)
+
+gherkin
+Feature: Timeliness of notice
+
+  Scenario Outline: Notice measured against statement date
+    Given the periodic statement first reflecting the transaction was sent on <statement_date>
+    And the notice was received on <receipt_date>
+    When the platform evaluates timeliness
+    Then the timeliness result is "<result>"
+
+    Examples:
+      | statement_date | receipt_date | result   |
+      | 2026-11-01     | 2026-12-31   | Timely   |
+      | 2026-11-01     | 2027-01-01   | Untimely |
+
+  Scenario: Untimely notice routed for review, not auto-denied
+    Given the timeliness result is "Untimely"
+    When the evaluation completes
+    Then the case is routed to a Compliance reviewer queue
+    And the platform requires a documented decision (accept as extenuating circumstances, or decline with rationale)
+    And the platform does not auto-close the case
+
+  Scenario: Extenuating circumstances extension
+    Given a consumer reports extended travel or hospitalization prevented timely notice
+    When the reviewer records the circumstance and supporting detail
+    Then the platform allows the reviewer to treat the notice as timely
+    And the extension decision is stored in the audit trail
+
+  Scenario: Request for documentation or clarification
+    Given the consumer requested documentation or clarification about an EFT under §1005.11(a)(1)(vi)
+    When the bank sends the information on 2026-11-10
+    Then the 60-day window for a follow-on notice of error is measured from 2026-11-10
+US-03: Classify the dispute as a Reg E error or something else
+
+As a dispute analyst,
+I want each dispute classified against the §1005.11(a) error types,
+so that only qualifying disputes enter the Reg E workflow, and non-qualifying ones are routed correctly without losing the customer.
+Ref: §1005.11(a)
+
+gherkin
+Feature: Error classification
+
+  Background:
+    Given the Reg E error types are configured as:
+      | Unauthorized EFT                                                     |
+      | Incorrect EFT to or from the consumer's account                      |
+      | EFT omitted from periodic statement                                  |
+      | Computational or bookkeeping error by the institution                |
+      | Incorrect amount received from an electronic terminal                |
+      | EFT not properly identified per §§1005.9 or 1005.10(a)               |
+      | Request for documentation or clarification, including whether an error exists |
+
+  Scenario: Qualifying error type selected
+    Given an analyst selects "Unauthorized EFT" for a debit card transaction
+    When the case is classified
+    Then the case enters the Reg E workflow
+    And the "Reg E applies" flag is set to true
+
+  Scenario Outline: Items that are not Reg E errors
+    Given the consumer describes <situation>
+    When the analyst classifies the case
+    Then the platform shows "<routing>"
+
+    Examples:
+      | situation                                               | routing                                               |
+      | a routine balance inquiry                               | Not an error: close with response, log inquiry        |
+      | a request for a duplicate statement for tax records     | Not an error: fulfil as service request               |
+      | a credit card billing error                             | Route to Reg Z billing error workflow                 |
+      | merchant goods or services dissatisfaction              | Route to merchant dispute (chargeback) workflow only  |
+
+  Scenario: Classification is reviewable
+    Given a case was classified as "Not an error"
+    When a supervisor opens the case
+    Then the supervisor can reclassify with a reason code
+    And if reclassified into Reg E, the clock uses the original receipt date, not the reclassification date
+
+Open question OQ-1: policy on consumer-induced transfers (scams). Commentary and CFPB guidance treat some fraudulently induced transfers as unauthorized. Legal must set the classification rule before this story is finalized.
+
+US-04: Track written confirmation of oral notices
+
+As a dispute operations manager,
+I want the platform to support the optional written-confirmation requirement,
+so that provisional credit decisions are lawful and consistent.
+Ref: §1005.11(b)(2), (c)(2)
+
+gherkin
+Feature: Written confirmation
+
+  Scenario: Agent informs the consumer at the time of oral notice
+    Given the bank policy requires written confirmation of oral notices
+    When an oral notice is taken
+    Then the platform displays a mandatory script stating the requirement and the mailing address or upload channel
+    And the agent must acknowledge delivery of the script before saving
+    And the confirmation due date is set to 10 business days after the oral notice
+
+  Scenario: Consumer confirms in writing on time
+    Given the confirmation was due on 2026-12-08
+    When a signed confirmation is received on 2026-12-04
+    Then the case records "Confirmation received" with the date
+    And the provisional credit obligation remains active
+
+  Scenario: Confirmation not received
+    Given the confirmation due date has passed with nothing received
+    And the required script was delivered and logged at intake
+    When the due date elapses
+    Then the platform flags "Provisional credit not required"
+    And the investigation continues within the applicable time limit
+
+  Scenario: Script delivery not logged
+    Given the required script was not logged at intake
+    When the confirmation due date elapses
+    Then the platform does not permit withholding provisional credit on that basis
+    And the case is flagged for Compliance review
+3. Epic B: Deadline engine
+US-05: Calculate and display all Reg E deadlines
+
+As a dispute analyst,
+I want every statutory deadline calculated automatically from the receipt date and the account’s characteristics,
+so that no deadline is missed and every deadline can be shown to an examiner.
+Ref: §1005.11(c), (d); §1005.2(d)
+
+gherkin
+Feature: Deadline engine
+
+  Background:
+    Given the business-day calendar excludes Saturdays, Sundays, and bank holidays
+    And 2026-11-26 is a bank holiday and 2026-11-27 is a business day
+
+  Scenario Outline: Investigation deadlines by account and transaction type
+    Given a Reg E case with receipt date 2026-11-23
+    And the account is "<account_type>" and the transaction is "<txn_type>"
+    When the deadlines are calculated
+    Then the "Complete investigation or provisionally credit by" date is <bd_deadline>
+    And the "Outside investigation limit" date is <outer_deadline>
+
+    Examples:
+      | account_type            | txn_type            | bd_deadline | outer_deadline |
+      | Established (> 30 days) | ACH debit           | 2026-12-08  | 2027-01-07     |
+      | Established (> 30 days) | POS debit card      | 2026-12-08  | 2027-02-21     |
+      | Established (> 30 days) | Foreign-initiated   | 2026-12-08  | 2027-02-21     |
+      | New (first deposit within 30 days of the transfer) | ACH debit | 2026-12-22 | 2027-02-21 |
+
+  Scenario: Deadlines recalculated when facts change
+    Given the analyst corrects the transaction type from "ACH debit" to "POS debit card"
+    When the change is saved
+    Then the platform recalculates the outer limit
+    And logs the previous and new dates with user and timestamp
+
+  Scenario: Calendar changes do not rewrite closed history
+    Given a case was closed with deadlines computed under holiday calendar version 12
+    When the calendar is updated to version 13
+    Then the closed case retains its original calculations
+    And the calculation records the calendar version used
+
+  Scenario: Deadline visibility
+    Given an open Reg E case
+    When any user opens it
+    Then the case header shows every applicable deadline with a countdown in business or calendar days as appropriate
+
+OQ-2: confirm whether the bank counts Saturday as a business day under §1005.2(d), and the rule when the 45/90-day date falls on a non-business day (default: no roll-forward).
+
+4. Epic C: Provisional credit
+US-06: Issue provisional credit when the investigation will exceed 10 business days
+
+As a dispute analyst,
+I want the platform to prompt and execute provisional credit,
+so that the consumer has full use of funds and the bank may extend to the 45/90-day limit.
+Ref: §1005.11(c)(2)
+
+gherkin
+Feature: Provisional credit
+
+  Scenario: Investigation cannot complete in 10 business days
+    Given a case with business-day deadline 2026-12-08
+    And the investigation is not complete as of 2026-12-07
+    When the analyst or the scheduled job reaches the decision point
+    Then the platform creates a provisional credit for the alleged error amount, including interest where applicable
+    And the credit posts no later than 2026-12-08
+    And the case status becomes "Provisionally credited"
+    And the extended deadline of 2027-01-07 becomes active
+
+  Scenario: Consumer has full use of provisional funds
+    Given a provisional credit has posted
+    When the platform applies holds
+    Then the platform places no hold on the provisional credit amount
+    And the credit is available for withdrawal and transfer
+
+  Scenario: Unauthorized EFT, $50 holdback permitted
+    Given the error type is "Unauthorized EFT"
+    And Compliance has recorded a reasonable basis for believing the transfer was unauthorized
+    And the §1005.6(a) conditions are recorded as satisfied
+    When provisional credit is calculated for an alleged error of $300.00
+    Then the platform permits a maximum withheld amount of $50.00
+    And the provisional credit amount is $250.00
+    And the holdback decision and basis are stored in the audit trail
+
+  Scenario: Exception, no provisional credit without written confirmation
+    Given written confirmation was required, the required script was logged, and confirmation is overdue
+    When the credit decision point is reached
+    Then the platform records "Provisional credit not required: no written confirmation"
+    And no credit is posted
+
+  Scenario: Exception, Reg T account
+    Given the account is subject to Regulation T
+    When the credit decision point is reached
+    Then the platform records "Provisional credit not required: Reg T"
+
+  Scenario: Investigation completes within 10 business days
+    Given the investigation concludes on 2026-12-02 with an error found
+    When the case is resolved
+    Then no provisional credit is required before resolution
+    And the correction follows US-10 timing
+
+  Scenario: Missed provisional credit deadline
+    Given the credit has not posted by end of day 2026-12-08
+    When the nightly breach check runs
+    Then the case is flagged "Regulatory breach"
+    And Compliance is notified
+US-07: Notify the consumer of provisional credit
+
+As a consumer,
+I want to be told that provisional credit has been made, in what amount, and on what date,
+so that I understand my funds and the investigation timeline.
+Ref: §1005.11(c)(2)(ii)
+
+gherkin
+Feature: Provisional credit notice
+
+  Scenario: Notice generated and sent within 2 business days
+    Given a provisional credit of $250.00 posted on 2026-12-08
+    When the credit posts
+    Then the platform generates a notice stating the credit amount and the credit date
+    And the notice is sent no later than 2026-12-10
+    And the platform records delivery channel, timestamp, and template version
+
+  Scenario: Delivery failure
+    Given the notice bounces or fails delivery
+    When the delivery failure is detected
+    Then the platform creates a task to resend by an alternate channel
+    And the failure and cure are logged
+
+  Scenario: Oral notice permitted but must be recorded
+    Given policy allows oral notification
+    When an agent notifies the consumer by phone
+    Then the agent records the date, time, and content
+    And a written copy is still sent by default
+5. Epic D: Investigation
+US-08: Run and document the investigation
+
+As a dispute analyst,
+I want a guided investigation workflow with evidence capture,
+so that every determination is supportable and consistent.
+Ref: §1005.11(c)(1), (c)(4)
+
+gherkin
+Feature: Investigation workflow
+
+  Scenario: Required investigation steps by error type
+    Given a case classified "Unauthorized EFT"
+    When the analyst opens the investigation tab
+    Then the platform presents the configured checklist, including account history review, device and channel logs, card or credential status, and customer statement
+    And each completed step requires a timestamp, user, and notes
+
+  Scenario: Review of own records permitted for third-party transfers without an agreement
+    Given the alleged error concerns a transfer to or from a third party
+    And no agreement exists between the bank and that third party for this type of EFT
+    When the analyst records the investigation basis
+    Then the platform allows "Review of institution records only" as a sufficient basis
+    And Compliance can review the conditions for that selection
+
+  Scenario: Broader review otherwise
+    Given an agreement exists between the bank and the third party or network for this EFT type
+    When the analyst attempts to close the investigation on a records-only basis
+    Then the platform requires evidence of the third-party or network inquiry
+
+  Scenario: Cannot close without findings
+    Given the analyst has not recorded a determination and rationale
+    When the analyst tries to move the case to "Resolution"
+    Then the platform blocks the action and lists the missing fields
+US-09: Coordinate with card network and ACH processes
+
+As a dispute operations specialist,
+I want the Reg E case linked to chargeback and ACH return actions,
+so that the customer is made whole on Reg E timelines regardless of recovery from other parties.
+Ref: §1005.11; Nacha Operating Rules; network rules
+
+gherkin
+Feature: Rails coordination
+
+  Scenario: Customer resolution is not contingent on network recovery
+    Given a Reg E error is confirmed on a debit card transaction
+    And the chargeback is still pending with the network
+    When the correction deadline arrives
+    Then the platform requires the customer correction to post on Reg E timing
+    And the bank's loss is tracked separately in the recovery ledger
+
+  Scenario: ACH unauthorized debit return
+    Given a consumer reports an unauthorized ACH debit
+    When the analyst initiates recovery
+    Then the platform prompts for a signed written statement of unauthorized debit if the Nacha rules require it
+    And it displays the return deadline from the debit's settlement date
+    And a missed return window does not extend or alter the Reg E customer deadlines
+
+  Scenario: Recovery outcome recorded
+    Given a network chargeback or ACH return completes
+    When the outcome is posted
+    Then it is linked to the Reg E case
+    And the recovery has no effect on the customer's resolution notices
+
+OQ-3: Fraud/Payments Ops to supply the current Nacha and network return and chargeback windows. These are parameters, not rules to hardcode.
+
+6. Epic E: Resolution and notices
+US-10: Resolve a confirmed error
+
+As a consumer,
+I want a confirmed error corrected promptly and told to me clearly,
+so that my account is made whole.
+Ref: §1005.11(d)(1)
+
+gherkin
+Feature: Error confirmed
+
+  Scenario: Correction within 1 business day
+    Given the analyst determines on Tuesday 2026-12-15 that an error occurred
+    When the determination is saved
+    Then the platform creates the correcting entry for posting no later than Wednesday 2026-12-16
+    And the correction includes applicable interest and refunds of fees the bank imposed because of the error
+
+  Scenario: Provisional credit becomes final
+    Given a provisional credit of $250.00 is on the account
+    And the confirmed error amount is $300.00 (including the $50 holdback)
+    When the correction posts
+    Then the platform posts the additional $50.00
+    And the credit is marked "Final"
+
+  Scenario: Customer notice within 3 business days
+    Given the investigation completed on 2026-12-15
+    When the determination is saved
+    Then the platform generates the results notice
+    And the notice is delivered no later than 2026-12-18
+    And the delivery evidence is stored
+
+  Scenario: Notice content
+    Given a results notice is generated for an error found
+    Then it states the result and the corrected amount and date
+US-11: Resolve when no error is found
+
+As a consumer,
+I want a clear written explanation and fair handling of any provisional credit reversal,
+so that I understand the result and can request supporting documents.
+Ref: §1005.11(d)(2)
+
+gherkin
+Feature: No error found
+
+  Scenario: Written explanation within 3 business days
+    Given the analyst concludes on Tuesday 2026-12-15 that no error occurred
+    When the determination is saved
+    Then the platform generates a written explanation notice
+    And the notice is sent no later than Friday 2026-12-18
+    And the notice includes the right to request the documents relied on
+
+  Scenario: Reversal of provisional credit
+    Given a provisional credit of $250.00 is outstanding
+    When the analyst approves the reversal
+    Then the platform creates the debit with an effective date recorded
+    And the notice states the date and amount of the debit
+    And the notice states that checks, drafts, and preauthorized transfers to third parties will be honored for 5 business days after the notice, to the extent they would have been paid had the credit not been reversed
+
+  Scenario: Honoring items during the 5-business-day window
+    Given the reversal notice was sent on 2026-12-18
+    And a preauthorized debit of $200.00 presents on 2026-12-21
+    And the reversal would otherwise cause the account to overdraw
+    When the transaction is processed
+    Then the platform exempts the item from the standard decline-and-NSF path, within the 5-business-day window
+    And any resulting fees are suppressed per policy
+    And the exception is logged
+
+  Scenario: Consumer requests supporting documents
+    Given a consumer requests the documents the bank relied on
+    When the request is logged
+    Then the platform creates a task to deliver copies promptly
+    And the task shows the request date and fulfilment date
+US-12: Handle a different error discovered during investigation
+
+As a dispute analyst,
+I want to record and resolve an error that differs in type or amount from what the consumer alleged,
+so that the consumer is made whole for the true error.
+Ref: §1005.11(d)(3)
+
+gherkin
+Feature: Error found differs from allegation
+
+  Scenario: Different amount found
+    Given the consumer alleged an error of $300.00
+    And the investigation finds the actual error is $450.00
+    When the analyst records the determination
+    Then the case stores both the alleged and determined amounts and types
+    And the correction and notices follow the same timing as US-10 for the determined error
+    And the notice describes the determined error
+
+  Scenario: Different error type found
+    Given a consumer alleged an unauthorized transfer
+    And the investigation instead finds a duplicate bank posting
+    When the analyst records "Incorrect EFT, duplicate posting"
+    Then the platform applies the resolution path for the determined type
+US-13: Handle reassertion of the same error
+
+As a compliance officer,
+I want the platform to recognize reasserted errors and treat them according to policy,
+so that the bank neither re-runs the full process unnecessarily nor ignores new information.
+Ref: §1005.11(e)
+
+gherkin
+Feature: Reassertion of error
+
+  Scenario: Same error reasserted after full compliance
+    Given case C-1001 was closed with all required notices delivered on time
+    When the consumer reasserts the same error
+    Then the platform links the new contact to C-1001 and flags "Reassertion"
+    And it offers a no-further-obligation response, subject to Compliance policy
+
+  Scenario: Reassertion after documentation or clarification information
+    Given the consumer received information in response to a documentation request under §1005.11(a)(1)(vi)
+    When the consumer asserts an error based on that information
+    Then the platform treats it as a new notice of error with a new clock
+
+  Scenario: Prior case was not fully compliant
+    Given case C-1001 has an open compliance exception
+    When the same error is reasserted
+    Then the platform does not apply the reassertion treatment
+    And it routes the case to Compliance
+US-14: Determine consumer liability for unauthorized EFTs
+
+As a dispute analyst,
+I want the platform to compute consumer liability tiers,
+so that unauthorized-transfer outcomes are consistent with §1005.6.
+Ref: §1005.6(b)
+
+gherkin
+Feature: Liability determination
+
+  Scenario Outline: Liability tiers for a lost or stolen access device
+    Given the consumer learned of the loss or theft on <learned_date>
+    And the consumer notified the bank on <notice_date>
+    When the platform evaluates liability for an unauthorized EFT of $<amount>
+    Then the maximum liability tier is "<tier>"
+
+    Examples:
+      | learned_date | notice_date | amount | tier                      |
+      | 2026-11-16   | 2026-11-17  | 800    | Up to $50                 |
+      | 2026-11-16   | 2026-11-23  | 800    | Up to $500                |
+
+  Scenario: Transfers after 60 days from the statement
+    Given the unauthorized transfer was not reported within 60 days of the statement
+    And the bank can establish that timely notice would have prevented later losses
+    When liability is evaluated
+    Then the platform records the extended-liability rationale and requires Compliance approval
+
+  Scenario: Timing evidence stored
+    When any liability tier is applied
+    Then the platform stores the dates and facts used
+
+Validate the tier logic against §1005.6(b)(1)–(3) before build. The examples above are illustrative.
+
+7. Epic F: Controls and evidence
+US-15: Escalation and breach alerts
+
+As a dispute operations manager,
+I want proactive alerts ahead of each regulatory deadline,
+so that breaches are prevented rather than reported afterward.
+
+gherkin
+Feature: SLA alerts
+
+  Scenario Outline: Pre-deadline alerts
+    Given an open Reg E case with an obligation due on <due_date>
+    When today is <days_before> business day(s) before <due_date>
+    Then the case owner and team lead receive an alert
+    And the alert names the obligation (credit, notice, correction, or report)
+
+    Examples:
+      | days_before |
+      | 3           |
+      | 1           |
+
+  Scenario: Breach logged
+    Given an obligation was not met by its due date
+    When the nightly check runs
+    Then the platform opens a breach record with the case, the obligation, and the days late
+    And the record requires a Compliance root-cause entry before the case can close
+US-16: Recordkeeping and audit trail
+
+As a compliance officer,
+I want immutable evidence of every Reg E action,
+so that the bank can demonstrate compliance to examiners.
+Ref: §1005.13
+
+gherkin
+Feature: Evidence retention
+
+  Scenario: Complete audit trail
+    Given any Reg E case
+    When an examiner or auditor requests its history
+    Then the platform shows receipt date and channel, classification, timeliness decision, every deadline and its calculation inputs, credits, notices (with template version and delivery proof), determination, and corrections
+    And the platform shows who did what and when for every field change
+
+  Scenario: Retention
+    Given a Reg E case is closed on 2026-12-18
+    Then its records are retained for at least 2 years, or longer if a legal hold or dispute applies
+    And deletion before that date is blocked for all users
+
+  Scenario: Records immutable
+    Given a notice was sent
+    When a user attempts to edit the stored copy
+    Then the platform prevents the edit
+    And any corrected notice is saved as a new version linked to the original
+US-17: Management information and compliance reporting
+
+As a head of compliance,
+I want reporting on Reg E timeliness and outcomes,
+so that I can monitor risk and file accurate regulatory responses.
+
+gherkin
+Feature: Reg E MI
+
+  Scenario: Timeliness dashboard
+    Given Reg E cases exist for the period
+    When the compliance officer opens the dashboard
+    Then the platform shows % of provisional credits on time, % of notices on time, % of corrections on time, and the count of breaches
+    And each metric can be drilled to the case list
+
+  Scenario: Outcome breakdown
+    When the report is run for a period
+    Then it shows volume by error type, channel, rail (card or ACH), and outcome (error found, no error)
+    And it shows average time to resolve and dollars credited and reversed
+8. Traceability
+Requirement	Stories
+§1005.11(a) error definition	US-03, US-12
+§1005.11(b) notice, 60 days, written confirmation	US-01, US-02, US-04
+§1005.11(c)(1) 10 business days	US-05, US-06, US-08
+§1005.11(c)(2) provisional credit, 45 days, $50 holdback	US-05, US-06, US-07
+§1005.11(c)(3) 20 business days / 90 days	US-05
+§1005.11(c)(4) own-records investigation	US-08
+§1005.11(d) corrections, explanations, 5-day honoring	US-10, US-11, US-12
+§1005.11(e) reassertion	US-13
+§1005.6 liability	US-14
+§1005.13 recordkeeping	US-16
+Operational controls	US-09, US-15, US-17
+9. Open questions
+#	Question	Owner
+OQ-1	Policy on fraudulently induced (scam) transfers: unauthorized or not?	Legal / Compliance
+OQ-2	Business-day definition (Saturdays) and rule when the 45/90-day date falls on a non-business day	Compliance
+OQ-3	Current Nacha return and card network chargeback windows for configuration	Payments Ops
+OQ-4	Which channels count as designated for notice, and the policy for non-designated receipt	Legal
+OQ-5	Prepaid and P2P account coverage and the §1005.18 verification conditions	Product / Compliance
+OQ-6	Fee suppression policy during the 5-business-day honoring window	Finance / Compliance
+OQ-7	Whether to apply Reg E timelines to non-covered accounts as a goodwill standard	Product
+
+I can break any of these into Jira-ready tickets with story points and dependencies, or draft the notice templates (provisional credit, error found, no error found) next.

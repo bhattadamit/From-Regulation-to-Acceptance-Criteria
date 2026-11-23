@@ -1,0 +1,418 @@
+# Reg CC Next-Day Availability (12 CFR 229.10): User Stories for the Deposit Hold Engine
+
+## Scope and assumptions
+
+- **In scope:** Determining next-day availability under §229.10 (cash, electronic payments, and specified check types) and setting the availability date. Also in scope are the interaction with the §229.13 exception holds and the audit trail.
+- **Out of scope:** Second-day and local/nonlocal schedules (§229.12), exception-hold decisioning rules (§229.13) beyond the override interaction, and hold notice generation (§229.13(g)). Each of these should be its own epic.
+- **Thresholds are configuration, not code.** The dollar amounts below reflect my understanding of the July 2025 inflation adjustment ($275 aggregate daily check amount, $6,725 for new accounts and large deposits). **Compliance must confirm against the current Federal Register notice and Reg CC text before go-live.**
+- **"Next business day" means the business day after the banking day of deposit.** Business days are Monday to Friday excluding federal holidays (§229.2(g)). A deposit received after the cutoff is treated as made on the next banking day. Cutoff is configurable, no earlier than 2:00 p.m. local at a branch and no earlier than 12:00 noon at an ATM or other off-premises location.
+- **"Available" means funds are available for all uses, including cash withdrawal and paying checks,** with no partial-availability logic inside this epic.
+
+## Configuration parameters
+
+| Parameter | Default (verify) | Reference |
+|---|---|---|
+| `NEXT_DAY_AGGREGATE_CHECK_MIN` | $275 | §229.10(c)(1)(vii) |
+| `NEW_ACCOUNT_NEXT_DAY_CAP` | $6,725 | §229.13(a) |
+| `CUTOFF_BRANCH` | 14:00 local | §229.19(a) |
+| `CUTOFF_ATM` | 12:00 local | §229.19(a) |
+| `HOLIDAY_CALENDAR` | Federal Reserve holiday calendar | §229.2(g) |
+
+---
+
+## Epic: Next-Day Availability Determination
+
+### Story 1: Business-day and banking-day calculation
+
+**As a** deposit operations analyst
+**I want** the hold engine to compute the banking day of deposit and the next business day from a maintained calendar
+**So that** every next-day availability date is correct across weekends and federal holidays.
+
+```gherkin
+Feature: Banking day and next business day calculation
+
+  Background:
+    Given the holiday calendar contains "2026-11-26" as Thanksgiving Day
+    And the branch cutoff hour is 14:00 local time
+
+  Scenario Outline: Compute banking day and next-day availability date
+    Given a deposit is received on "<receipt_date>" at "<receipt_time>" at a branch
+    When the engine computes the banking day of deposit
+    Then the banking day of deposit is "<banking_day>"
+    And the next-day availability date is "<available_date>"
+
+    Examples:
+      | receipt_date | receipt_time | banking_day | available_date | note                          |
+      | 2026-11-18   | 10:00        | 2026-11-18  | 2026-11-19     | Wednesday before cutoff       |
+      | 2026-11-18   | 15:30        | 2026-11-19  | 2026-11-20     | Wednesday after cutoff        |
+      | 2026-11-20   | 10:00        | 2026-11-20  | 2026-11-23     | Friday, skips weekend         |
+      | 2026-11-20   | 15:30        | 2026-11-23  | 2026-11-24     | Friday after cutoff           |
+      | 2026-11-25   | 10:00        | 2026-11-25  | 2026-11-27     | Skips Thanksgiving            |
+      | 2026-11-21   | 09:00        | 2026-11-23  | 2026-11-24     | Saturday receipt              |
+      | 2026-11-26   | 09:00        | 2026-11-27  | 2026-11-30     | Holiday receipt               |
+
+  Scenario: Branch not open on a business day
+    Given the branch is closed to the public on "2026-12-24" which is not a federal holiday
+    When a deposit is received at that branch on "2026-12-24"
+    Then the banking day of deposit is the next day the branch is open to the public
+```
+
+---
+
+### Story 2: Cash deposits
+
+**As a** deposit operations analyst
+**I want** cash deposits made in person to a bank employee to be available the next business day
+**So that** the bank complies with §229.10(a).
+
+```gherkin
+Feature: Next-day availability for cash deposits
+
+  Scenario: Cash deposited in person to an employee
+    Given an account holder deposits $2,000.00 in cash at a teller window on a business day before cutoff
+    When the hold engine evaluates the deposit
+    Then the deposit is classified as "CASH_IN_PERSON"
+    And the availability rule applied is "REGCC_229.10(a)"
+    And the full $2,000.00 is available on the next business day
+
+  Scenario: Cash deposited at an ATM is not in-person-to-employee
+    Given an account holder deposits $500.00 in cash at a proprietary ATM
+    When the hold engine evaluates the deposit
+    Then the deposit is classified as "CASH_ATM"
+    And the engine does not apply rule "REGCC_229.10(a)"
+    And the deposit is routed to the ATM cash availability rule defined in the §229.12 epic
+
+  Scenario: Cash deposit into a new account
+    Given the account was opened 10 business days ago
+    And a customer deposits $9,000.00 in cash in person to an employee
+    When the hold engine evaluates the deposit
+    Then the full $9,000.00 is available on the next business day
+    And the new-account exception is not applied to the cash deposit
+```
+
+*Note for Compliance: Reg CC permits second-business-day availability for cash taken at an ATM or other non-employee-staffed location (§229.12(d)). Confirm the bank's policy for ATM cash.*
+
+---
+
+### Story 3: Electronic payments
+
+**As a** deposit operations analyst
+**I want** wire transfers, ACH credits, and other electronic payments to be available the next business day
+**So that** the bank complies with §229.10(b).
+
+```gherkin
+Feature: Next-day availability for electronic payments
+
+  Scenario Outline: Electronic credit received
+    Given an incoming "<payment_type>" of $<amount> is received for an account on a business day
+    When the hold engine evaluates the credit
+    Then the availability rule applied is "REGCC_229.10(b)"
+    And the funds are available on the next business day
+
+    Examples:
+      | payment_type  | amount   |
+      | WIRE          | 50000.00 |
+      | ACH_CREDIT    | 1200.00  |
+      | RTP_CREDIT    | 300.00   |
+
+  Scenario: Electronic payment into a new account
+    Given the account is a new account
+    When an ACH credit of $10,000.00 is received
+    Then the funds are available on the next business day
+    And the new-account exception is not applied
+```
+
+*Note: Confirm whether the bank's policy is same-day for wires and ACH (common in practice). Reg CC sets only the outer limit; the engine should apply whichever availability is earlier.*
+
+---
+
+### Story 4: Government and bank-issued checks
+
+**As a** deposit operations analyst
+**I want** U.S. Treasury checks, state and local government checks, cashier's, certified, and teller's checks, Federal Reserve Bank and Federal Home Loan Bank checks, and postal money orders to be available the next business day when the conditions of §229.10(c) are met
+**So that** the bank complies with the rule for low-risk check types.
+
+```gherkin
+Feature: Next-day availability for specified check types
+
+  Scenario Outline: Eligible check type deposited into the payee's account
+    Given a check of type "<check_type>" for $<amount>
+    And the check is payable to the account holder
+    And the check is deposited "<channel>"
+    When the hold engine evaluates the deposit
+    Then the availability rule applied is "REGCC_229.10(c)"
+    And the funds are available on the next business day
+
+    Examples:
+      | check_type              | amount   | channel                    |
+      | US_TREASURY             | 4000.00  | in person to an employee   |
+      | US_TREASURY             | 4000.00  | at an ATM                  |
+      | STATE_LOCAL_GOVERNMENT  | 2500.00  | in person to an employee   |
+      | CASHIERS_CHECK          | 8000.00  | in person to an employee   |
+      | CERTIFIED_CHECK         | 8000.00  | in person to an employee   |
+      | TELLERS_CHECK           | 3000.00  | in person to an employee   |
+      | FRB_OR_FHLB_CHECK       | 15000.00 | in person to an employee   |
+      | USPS_MONEY_ORDER        | 700.00   | in person to an employee   |
+
+  Scenario: Eligible check deposited by someone other than the payee
+    Given a cashier's check payable to a third party
+    And it is deposited into an account where the account holder is not the payee
+    When the hold engine evaluates the deposit
+    Then the next-day rule "REGCC_229.10(c)" is not applied
+    And the item is routed to the §229.12 availability rules
+
+  Scenario: Eligible check type deposited at an ATM or by mail
+    Given a cashier's check payable to the account holder
+    And it is deposited at an ATM
+    When the hold engine evaluates the deposit
+    Then the item is flagged "NEXT_DAY_REQUIRES_EMPLOYEE_DEPOSIT"
+    And the engine applies the bank's configured rule for non-employee deposits
+    And the rule applied is recorded on the hold record
+
+  Scenario: Government check that does not meet the identification conditions
+    Given a state government check
+    And the item lacks the information the bank requires to treat it as a state or local government check
+    When the hold engine evaluates the deposit
+    Then the item is not treated as next-day eligible
+    And the item is routed to the §229.12 availability rules
+```
+
+*Business rule for Compliance to confirm:* Treasury checks are next-day eligible regardless of deposit channel when deposited into the payee's account. For cashier's, certified, teller's, state/local government, and Federal Reserve/FHLB checks, next-day treatment depends on the deposit method and on payee conditions under §229.10(c). I've encoded this as a configurable channel eligibility matrix and have not hard-coded it.
+
+---
+
+### Story 5: Same-bank (on-us) checks
+
+**As a** deposit operations analyst
+**I want** checks drawn on our own institution to be available the next business day
+**So that** the engine covers the on-us rule in §229.10(c)(1).
+
+```gherkin
+Feature: On-us check next-day availability
+
+  Scenario: Check drawn on a branch of the same bank, same state
+    Given a check drawn on a branch of the depositary bank
+    And the account holder deposits it for $3,200.00
+    When the hold engine evaluates the deposit
+    Then the availability rule applied is "REGCC_229.10(c)_ON_US"
+    And the funds are available on the next business day
+
+  Scenario: On-us check with an exception hold
+    Given an on-us check for $3,200.00
+    And the bank's system flags the drawer account as having insufficient funds
+    When the hold engine evaluates the deposit
+    Then the next-day rule is overridden by the exception hold flow
+    And the override is recorded with the reason code "EXCEPTION_INSUFFICIENT_FUNDS"
+```
+
+*Open item: confirm whether the bank's legal reading is that on-us checks need an additional same-state or same-bank condition. Align with Legal.*
+
+---
+
+### Story 6: Aggregate daily next-day amount for other checks
+
+**As a** deposit operations analyst
+**I want** the first $275 (configurable) of aggregate check deposits per account per banking day, not otherwise next-day eligible, to be available the next business day
+**So that** the bank complies with the minimum-amount provision of §229.10(c)(1)(vii).
+
+```gherkin
+Feature: Aggregate daily minimum next-day availability
+
+  Background:
+    Given NEXT_DAY_AGGREGATE_CHECK_MIN is $275.00
+
+  Scenario: Single check below the minimum
+    Given an account has no other deposits on the banking day
+    When a personal check for $200.00 is deposited
+    Then $200.00 is available on the next business day
+
+  Scenario: Single check above the minimum
+    When a personal check for $1,000.00 is deposited
+    Then $275.00 is available on the next business day
+    And the remaining $725.00 is routed to the §229.12 availability rules
+
+  Scenario: Multiple checks in one banking day
+    Given a personal check for $200.00 is deposited at 10:00
+    When a second personal check for $150.00 is deposited at 11:00 on the same banking day
+    Then the aggregate next-day amount across both deposits is capped at $275.00
+    And $200.00 from the first deposit and $75.00 from the second are available next business day
+    And $75.00 of the second deposit is routed to the §229.12 availability rules
+
+  Scenario: Aggregate cap is not consumed by items already next-day eligible
+    Given a cashier's check for $5,000.00 qualifies under "REGCC_229.10(c)"
+    When a personal check for $250.00 is deposited on the same banking day
+    Then the cashier's check does not reduce the $275.00 aggregate allowance
+    And $250.00 of the personal check is available on the next business day
+
+  Scenario: Deposits on different banking days
+    Given a personal check for $275.00 deposited on Monday
+    When another personal check for $275.00 is deposited on Tuesday
+    Then each deposit receives its own $275.00 allowance for its banking day
+```
+
+*Note: The $275 allowance is separate from, and in addition to, the new-account cap in Story 7. Confirm sequencing with Compliance.*
+
+---
+
+### Story 7: New-account interaction
+
+**As a** compliance officer
+**I want** next-day availability for check deposits into new accounts to be limited to the new-account cap, while cash and electronic payments remain next-day
+**So that** the bank applies §229.13(a) correctly alongside §229.10.
+
+```gherkin
+Feature: New account handling of next-day items
+
+  Background:
+    Given an account is defined as new for the first 30 calendar days after opening
+    And NEW_ACCOUNT_NEXT_DAY_CAP is $6,725.00
+
+  Scenario: Eligible special checks under the cap on a new account
+    Given the account is new
+    When cashier's checks totaling $5,000.00 are deposited on one banking day
+    Then $5,000.00 is available on the next business day
+
+  Scenario: Eligible special checks over the cap on a new account
+    Given the account is new
+    When cashier's checks totaling $9,000.00 are deposited on one banking day
+    Then $6,725.00 is available on the next business day
+    And the remaining $2,275.00 is routed to the new-account exception hold flow
+    And the hold reason code "NEW_ACCOUNT" is recorded
+
+  Scenario: Cash and electronic payments in a new account are not capped
+    Given the account is new
+    When $20,000.00 in cash is deposited in person to an employee
+    And a $15,000.00 wire is received on the same banking day
+    Then both are available on the next business day
+    And neither counts toward the $6,725.00 cap
+```
+
+*Note: Confirm with Legal how the cap applies when both special checks and the aggregate $275 allowance are in play.*
+
+---
+
+### Story 8: Exception holds overriding next-day treatment
+
+**As a** compliance officer
+**I want** safeguard exceptions to be able to extend next-day availability only for the permitted reasons, with a mandatory reason code
+**So that** the bank holds funds only when Reg CC allows.
+
+```gherkin
+Feature: Exception hold override of next-day availability
+
+  Scenario Outline: Permitted exception extends the hold
+    Given a deposit is eligible for next-day availability
+    And the exception "<exception>" is triggered
+    When the hold engine evaluates the deposit
+    Then the availability date is extended according to the configured exception period
+    And the hold record contains reason code "<reason_code>"
+    And a hold notice is queued for the notice service
+
+    Examples:
+      | exception              | reason_code               |
+      | LARGE_DEPOSIT          | EXC_LARGE_DEPOSIT         |
+      | REDEPOSITED_CHECK      | EXC_REDEPOSIT             |
+      | REPEATED_OVERDRAFT     | EXC_REPEATED_OVERDRAFT    |
+      | RECEIPT_OF_NOTICE_DOUBT| EXC_REASONABLE_DOUBT      |
+      | EMERGENCY_CONDITIONS   | EXC_EMERGENCY             |
+
+  Scenario: Reasonable-doubt exception without documented basis
+    Given a deposit is eligible for next-day availability
+    And the "RECEIPT_OF_NOTICE_DOUBT" flag is set with no reason text
+    When the hold engine evaluates the deposit
+    Then the engine rejects the override
+    And the deposit remains available on the next business day
+    And an exception is logged for operations review
+
+  Scenario: Exceptions do not apply to ineligible deposit types
+    Given an incoming wire for $50,000.00
+    When the "LARGE_DEPOSIT" exception is triggered
+    Then the engine does not extend the hold on the wire
+```
+
+*Note for Compliance: Apply only exceptions Reg CC permits for each deposit type. Cash and electronic payments are generally not subject to the large-deposit or redeposit exceptions. Encode the permitted-exception matrix as configuration.*
+
+---
+
+### Story 9: Audit trail and explainability
+
+**As an** internal auditor or regulatory examiner
+**I want** every availability decision to be traceable to the rule, inputs, and configuration version
+**So that** the bank can demonstrate compliance.
+
+```gherkin
+Feature: Availability decision audit trail
+
+  Scenario: Decision is logged
+    When the hold engine determines availability for any deposit item
+    Then an immutable audit record is written containing:
+      | field                        |
+      | deposit item ID              |
+      | account ID                   |
+      | receipt timestamp and channel|
+      | banking day of deposit       |
+      | item classification          |
+      | rule applied                 |
+      | amount available next day    |
+      | amount routed to other rules |
+      | availability date            |
+      | exception reason codes       |
+      | configuration version        |
+      | holiday calendar version     |
+
+  Scenario: Configuration change is versioned
+    Given the compliance team updates NEXT_DAY_AGGREGATE_CHECK_MIN
+    When the change is approved with maker-checker controls
+    Then a new configuration version is created with an effective date
+    And decisions made before the effective date remain linked to the prior version
+
+  Scenario: Examiner request
+    Given an examiner requests the basis for a specific hold
+    When an operations user retrieves the item
+    Then the system displays the rule, inputs, and dates in plain language
+```
+
+---
+
+### Story 10: Data and downstream integration
+
+**As an** operations manager
+**I want** the availability date and amounts to flow to the core ledger and online banking
+**So that** customers see funds as available when Reg CC requires.
+
+```gherkin
+Feature: Publish availability to downstream systems
+
+  Scenario: Available balance updated at start of the availability date
+    Given a deposit has a next-day availability date of "2026-11-23"
+    When the business day of "2026-11-23" begins
+    Then the ledger releases the held amount to available balance
+    And online and mobile banking display the updated available balance
+
+  Scenario: Late-arriving return before release
+    Given a deposited check is returned before the availability date
+    When the hold engine receives the return
+    Then the pending release for that item is cancelled
+    And the audit trail records the cancellation reason
+```
+
+---
+
+## Non-functional requirements
+
+- **Accuracy:** 100% of decisions must pass the regression suite built from the Examples tables above and Compliance-supplied test cases.
+- **Performance:** Hold determination returns within the SLA for real-time deposit channels (to be set with the channel owners).
+- **Calendar controls:** Holiday calendar changes require maker-checker approval, and the calendar is loaded at least a year ahead.
+- **Retention:** Audit records retained per the bank's Reg CC and recordkeeping policy.
+- **Testing:** Include boundary tests at the cutoff minute, at exactly $275.00, and at exactly the new-account cap.
+
+## Open questions for Compliance and Legal
+
+1. Confirm current dollar thresholds and their effective dates.
+2. Confirm the on-us check conditions to encode in Story 5.
+3. Confirm the deposit-channel matrix for cashier's, certified, teller's, and government checks (Story 4).
+4. Confirm how the $275 aggregate allowance and the new-account cap interact (Stories 6 and 7).
+5. Confirm whether the bank's policy is faster than Reg CC for wires, ACH, and ATM cash.
+6. Confirm the bank's definition of a new account and the length of the new-account period.
+
+*I'm a general-purpose AI assistant, not your bank's counsel. The regulatory interpretations above should be validated by Compliance and Legal before they are built into the engine.*

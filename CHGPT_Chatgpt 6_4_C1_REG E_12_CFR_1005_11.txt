@@ -1,0 +1,1171 @@
+# **Regulation E Error Resolution — User Stories and Gherkin Acceptance Criteria**
+
+**Platform:** Card and ACH Disputes\
+**Regulatory scope:** Electronic Fund Transfer Act (EFTA), Regulation E, 12 CFR § 1005.11\
+**Role:** Senior Business Analyst, U.S. Banking\
+**Objective:** Implement a compliant, auditable, end-to-end error-resolution workflow for consumer electronic fund transfer (EFT) disputes across debit card and ACH channels.
+
+## **1. Business objectives**
+
+The disputes platform must:
+
+1. Capture and classify consumer-reported EFT errors.
+2. Calculate and enforce regulatory investigation deadlines.
+3. Provide provisional credit when required.
+4. Conduct reasonable investigations and retain supporting evidence.
+5. Communicate investigation outcomes within prescribed timeframes.
+6. Provide consumers with investigation results and supporting documentation upon request.
+7. Maintain a complete audit trail demonstrating regulatory compliance.
+8. Support exceptions, extensions, and special timing rules without inadvertently extending deadlines.
+
+## **2. Regulatory requirements and business rules**
+
+The following requirements form the foundation of the backlog.
+
+| Requirement                     | Regulatory rule                                                                                                                                                  | Platform implication                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Error notification              | Consumer generally must notify the institution within 60 days after transmittal of the periodic statement reflecting the alleged error.                          | Capture statement date, notification date, and timeliness determination.  |
+| Acknowledgment                  | Written acknowledgment generally required within 10 business days if the institution does not resolve the error within that period.                              | Generate acknowledgment workflow and communication.                       |
+| Investigation                   | Investigate promptly and determine whether an error occurred.                                                                                                    | Establish case ownership, investigation tasks, and evidence requirements. |
+| Initial resolution              | Generally resolve within 10 business days.                                                                                                                       | Calculate initial investigation deadline.                                 |
+| Provisional credit              | If unable to complete investigation within 10 business days, provisionally credit the account within the applicable timeframe, subject to regulatory exceptions. | Automate provisional credit eligibility and posting.                      |
+| Extended investigation          | Generally up to 45 calendar days, subject to applicable exceptions.                                                                                              | Support extended investigation deadlines.                                 |
+| Special exceptions              | Certain POS debit card, new account, and foreign-initiated EFT investigations may qualify for up to 90 calendar days, subject to applicable conditions.          | Apply special deadline rules based on transaction characteristics.        |
+| Provisional credit availability | Generally make provisional funds available within the applicable timeframe, subject to permitted exceptions.                                                     | Track credit posting and availability separately.                         |
+| Resolution notice               | Notify the consumer of the investigation results within three business days after completing the investigation.                                                  | Generate outcome notifications.                                           |
+| Provisional credit reversal     | If no error occurred, provide written explanation before debiting provisional credit and comply with applicable notice and access requirements.                  | Implement controlled credit reversal.                                     |
+| Documentation                   | Provide requested supporting documentation relied upon in the investigation.                                                                                     | Maintain retrievable evidence and document delivery.                      |
+
+**Important design principle:** Regulatory deadlines must be driven by a centralized rules engine rather than hardcoded independently in card and ACH workflows.
+
+The requirements below distinguish between regulatory obligations and recommended operational controls. Final implementation should be validated against the current regulation, applicable official interpretations, and bank legal/compliance policy.
+
+## **3. Product scope and assumptions**
+
+Before implementation, establish the following boundaries.
+
+| Area            | Included                                                                                                                               | Excluded or separately governed                                                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Card            | Consumer debit card, ATM, and covered prepaid card EFTs                                                                                | Credit card billing disputes governed by Regulation Z                            |
+| ACH             | Consumer ACH debit and credit transfers that qualify as EFTs                                                                           | Commercial/business accounts unless separately covered by bank policy            |
+| Dispute types   | Unauthorized transfers, incorrect amounts, duplicate transfers, missing transfers, bookkeeping errors, and other qualifying EFT errors | Merchant dissatisfaction or service complaints that do not constitute EFT errors |
+| Intake channels | Phone, branch, online banking, mobile, written correspondence                                                                          | Internal-only fraud alerts that have not yet become consumer error notifications |
+| Resolution      | Investigation, provisional credit, final credit/debit, consumer notification                                                           | Network chargeback processes as a substitute for Regulation E compliance         |
+
+**Important distinction:** A card dispute is not automatically a Regulation E dispute. Credit card disputes generally fall under Regulation Z, while consumer debit card transactions generally fall under Regulation E. The platform must route cases based on the underlying account, product, and transaction type.
+
+The requirements below assume that the platform supports both oral and written consumer notifications and maintains separate regulatory and operational timestamps.
+
+# **4. Functional user stories and Gherkin acceptance criteria**
+
+## **Epic 1 — Dispute intake and error classification**
+
+### **US-001: Capture consumer error notification**
+
+**User story**
+
+As a disputes operations user, I want to capture a consumer's notification of an EFT error, so that the bank can establish the regulatory notification date and initiate the error-resolution process.
+
+**Business rules**
+
+- The notification date is the date the consumer notifies the institution, not necessarily the date the case is entered into the platform.
+- Both oral and written notifications must be supported.
+- The platform must retain the original notification channel and date.
+- The platform must distinguish the notification date from the transaction date and case creation date.
+
+**Acceptance criteria**
+
+```
+Feature: Capture consumer error notification
+
+  Scenario: Consumer reports an error by telephone
+    Given a consumer contacts the bank by telephone
+    And identifies an electronic fund transfer
+    When the disputes representative records the complaint
+    Then the platform shall create a dispute case
+    And capture the date of consumer notification
+    And capture the notification channel as "Oral"
+    And capture the affected account and transaction
+    And record the representative identifier
+    And timestamp the case creation event
+
+  Scenario: Consumer submits a written error notification
+    Given a consumer submits an error notification
+    When the notification is received by the bank
+    Then the platform shall capture the receipt date
+    And classify the notification channel as "Written"
+    And preserve the original notification
+    And associate the notification with the dispute case
+
+  Scenario: Case entry occurs after notification
+    Given a consumer reported an error on November 2
+    And the representative enters the case on November 4
+    When the dispute is created
+    Then the regulatory notification date shall be November 2
+    And the case creation date shall be November 4
+    And the two dates shall remain independently auditable
+```
+
+### **US-002: Identify and classify Regulation E errors**
+
+**User story**
+
+As a disputes analyst, I want the platform to classify reported transactions and error types, so that the correct regulatory investigation workflow is initiated.
+
+**Acceptance criteria**
+
+```
+Feature: Classify Regulation E errors
+
+  Scenario Outline: Classify an eligible EFT error
+    Given a consumer reports an electronic fund transfer error
+    When the analyst selects "<error_type>"
+    Then the platform shall classify the case as a Regulation E candidate
+    And initiate the applicable investigation workflow
+    And retain the selected error classification
+
+    Examples:
+      | error_type                         |
+      | Unauthorized EFT                   |
+      | Incorrect EFT amount               |
+      | Incorrect date or posting          |
+      | Duplicate EFT                      |
+      | EFT not credited to account        |
+      | Incorrect EFT to or from account   |
+      | Bookkeeping error                  |
+      | Other alleged EFT error            |
+
+  Scenario: Credit card dispute is submitted
+    Given a consumer reports a credit card billing dispute
+    When the platform identifies the underlying product as a credit card
+    Then the platform shall route the case to the Regulation Z workflow
+    And shall not automatically apply Regulation E deadlines
+
+  Scenario: Commercial ACH account is identified
+    Given a consumer reports an ACH transaction error
+    And the affected account is identified as a commercial account
+    When the platform evaluates regulatory applicability
+    Then the platform shall apply the configured commercial-account policy
+    And shall not automatically classify the case as a consumer Regulation E case
+```
+
+### **US-003: Calculate the 60-day notification period**
+
+**User story**
+
+As a disputes analyst, I want the platform to determine whether a consumer reported an error within the applicable notification period, so that the bank can evaluate its regulatory obligations.
+
+**Acceptance criteria**
+
+```
+Feature: Determine notification timeliness
+
+  Scenario: Notification received within 60 days
+    Given a periodic statement was transmitted on October 1
+    And the consumer reports an error on November 15
+    When the platform evaluates notification timeliness
+    Then the notification shall be classified as within 60 days
+    And the notification shall be eligible for normal investigation
+
+  Scenario: Notification received after 60 days
+    Given a periodic statement was transmitted on October 1
+    And the consumer reports an error after the applicable 60-day period
+    When the platform evaluates notification timeliness
+    Then the notification shall be flagged as potentially untimely
+    And the calculation shall be retained in the audit history
+    And the case shall be routed for policy review
+
+  Scenario: Multiple periodic statements exist
+    Given the account has multiple periodic statements
+    When the consumer reports an error
+    Then the platform shall identify the first applicable statement
+    And calculate the notification period using that statement's transmittal date
+    And retain the statement reference used in the calculation
+
+  Scenario: Notification is potentially untimely
+    Given the platform determines that the notification is outside the applicable period
+    When the case is reviewed
+    Then the platform shall not automatically reject the consumer's claim
+    And shall support review of the consumer's circumstances
+    And shall record the approval or rejection rationale
+```
+
+**Implementation note:** The 60-day rule should be evaluated using the statement that first reflects the alleged error, with the actual transmittal date. Late reporting must not automatically result in case rejection; the statutory liability provisions and applicable exceptions require separate evaluation.
+
+## **Epic 2 — Regulatory deadline management**
+
+### **US-004: Calculate the initial investigation deadline**
+
+**User story**
+
+As a disputes operations manager, I want the platform to automatically calculate the initial investigation deadline, so that all disputes are resolved within applicable regulatory timeframes.
+
+**Acceptance criteria**
+
+```
+Feature: Calculate initial investigation deadline
+
+  Scenario: Standard Regulation E dispute
+    Given a valid consumer error notification is received
+    And the transaction is not subject to a special timing exception
+    When the platform calculates the investigation deadline
+    Then the initial investigation deadline shall be 10 business days
+    And the deadline shall be calculated from the notification date
+    And the deadline shall be stored on the dispute case
+
+  Scenario: New account investigation
+    Given a consumer reports an error involving an EFT
+    And the EFT occurred within 30 days after the first deposit
+    When the platform evaluates the applicable timing rules
+    Then the platform shall identify the new-account exception
+    And calculate the applicable 20-business-day initial period
+    And flag the case for extended investigation handling
+
+  Scenario: Special 90-calendar-day investigation period
+    Given a dispute involves an eligible point-of-sale debit card transaction
+    Or a qualifying foreign-initiated EFT
+    Or an eligible new-account transaction
+    When the platform calculates the investigation deadline
+    Then the platform shall identify the applicable special exception
+    And calculate the applicable 90-calendar-day period
+    And retain the reason for the exception
+
+  Scenario: Business day calculation
+    Given a dispute has a regulatory deadline
+    When the platform calculates the deadline
+    Then it shall use the institution's configured Regulation E business-day calendar
+    And exclude days that are not business days under the applicable definition
+    And retain the calendar version used for calculation
+```
+
+### **US-005: Manage regulatory deadlines and escalations**
+
+**User story**
+
+As a disputes manager, I want automated deadline monitoring and escalation, so that approaching or missed regulatory deadlines are identified before they result in compliance violations.
+
+**Acceptance criteria**
+
+```
+Feature: Monitor regulatory deadlines
+
+  Scenario: Deadline approaching
+    Given a dispute has an outstanding investigation deadline
+    And the deadline is approaching
+    When the configured escalation threshold is reached
+    Then the platform shall notify the assigned investigator
+    And notify the responsible team lead
+    And record the escalation event
+
+  Scenario: Regulatory deadline missed
+    Given a dispute has exceeded its regulatory deadline
+    And the investigation remains incomplete
+    When the deadline monitoring process executes
+    Then the platform shall flag the case as overdue
+    And generate a compliance exception
+    And notify the disputes manager
+    And preserve the original deadline
+
+  Scenario: Case reassignment
+    Given a dispute is reassigned to another investigator
+    When the reassignment is completed
+    Then the original regulatory deadline shall remain unchanged
+    And the new investigator shall receive the outstanding tasks
+    And the reassignment shall be recorded in the audit history
+
+  Scenario: Deadline recalculation
+    Given a dispute has an established regulatory deadline
+    When a case attribute is changed
+    Then the platform shall recalculate the deadline only when the change affects an applicable regulatory rule
+    And preserve the previous deadline and calculation history
+```
+
+### **US-006: Generate written acknowledgment**
+
+**User story**
+
+As a disputes operations user, I want the platform to generate a written acknowledgment when required, so that the bank satisfies Regulation E acknowledgment requirements.
+
+**Acceptance criteria**
+
+```
+Feature: Written acknowledgment
+
+  Scenario: Investigation cannot be completed within 10 business days
+    Given a consumer has reported an EFT error
+    And the bank cannot complete the investigation within 10 business days
+    When the acknowledgment requirement is evaluated
+    Then the platform shall generate a written acknowledgment
+    And schedule delivery within the applicable 10-business-day period
+    And record the generation and delivery dates
+
+  Scenario: Investigation completed within 10 business days
+    Given a consumer has reported an EFT error
+    When the bank completes the investigation within 10 business days
+    Then the platform shall not require a separate acknowledgment solely under the extended-investigation provision
+
+  Scenario: Consumer notification was oral
+    Given the consumer initially reported an error orally
+    And written confirmation is required under the applicable procedure
+    When the platform processes the oral notification
+    Then it shall generate the required written-confirmation instructions
+    And track the confirmation requirement separately
+    And prevent unauthorized use of the confirmation requirement to delay required regulatory action
+```
+
+## **Epic 3 — Provisional credit management**
+
+### **US-007: Determine provisional credit eligibility**
+
+**User story**
+
+As a disputes analyst, I want the platform to determine whether provisional credit is required, so that consumers receive access to disputed funds when required by Regulation E.
+
+**Acceptance criteria**
+
+```
+Feature: Provisional credit eligibility
+
+  Scenario: Investigation cannot be completed within the initial period
+    Given a consumer reports an eligible EFT error
+    And the investigation cannot be completed within the applicable initial period
+    When the platform evaluates provisional credit eligibility
+    Then the platform shall determine whether provisional credit is required
+    And calculate the applicable provisional credit deadline
+    And create a provisional credit task
+
+  Scenario: Investigation completed within initial period
+    Given a consumer reports an EFT error
+    And the investigation is completed within the applicable initial period
+    When the platform determines that no error occurred
+    Then provisional credit shall not be required solely because a dispute was opened
+
+  Scenario: Oral notification and written confirmation
+    Given a consumer initially reports an error orally
+    And the bank has provided the required written confirmation instructions
+    And the consumer has not provided written confirmation within the applicable 10-business-day period
+    When the platform evaluates provisional credit eligibility
+    Then it shall evaluate the permitted exception under Regulation E
+    And record the facts supporting the determination
+    And route the decision for appropriate controls
+```
+
+### **US-008: Post provisional credit**
+
+**User story**
+
+As a disputes operations user, I want the platform to initiate provisional credit automatically when required, so that the consumer receives the disputed funds within regulatory timeframes.
+
+**Acceptance criteria**
+
+```
+Feature: Provisional credit posting
+
+  Scenario: Standard provisional credit
+    Given a dispute qualifies for provisional credit
+    When the applicable provisional credit deadline is reached
+    Then the platform shall initiate provisional credit posting
+    And use the amount of the alleged error as the provisional credit amount
+    And associate the credit transaction with the dispute case
+    And record the posting date and amount
+
+  Scenario: New-account provisional credit
+    Given the dispute qualifies for the new-account timing exception
+    When provisional credit is required
+    Then the platform shall calculate the applicable 20-business-day provisional credit deadline
+    And initiate provisional credit within the required timeframe
+
+  Scenario: Provisional credit cannot be posted
+    Given provisional credit is required
+    When the posting interface returns an error
+    Then the platform shall mark the posting as failed
+    And generate an immediate operational exception
+    And retry according to approved posting controls
+    And escalate before the regulatory deadline is missed
+
+  Scenario: Provisional credit successfully posted
+    Given the posting system confirms a successful credit
+    When the platform receives the posting confirmation
+    Then the dispute status shall update to "Provisional Credit Posted"
+    And the transaction reference shall be stored
+    And the consumer notification workflow shall be initiated
+```
+
+### **US-009: Make provisional credit available and notify the consumer**
+
+**User story**
+
+As a consumer, I want access to provisional credit while my dispute is being investigated, so that I am not unnecessarily deprived of the disputed funds.
+
+**Acceptance criteria**
+
+```
+Feature: Provisional credit availability
+
+  Scenario: Provisional credit successfully posted
+    Given provisional credit has been granted
+    When the bank confirms the credit
+    Then the platform shall initiate the applicable consumer notification
+    And notify the consumer within two business days after granting provisional credit
+    And ensure the funds are available as required by Regulation E
+
+  Scenario: Provisional credit posting is pending
+    Given provisional credit is required
+    And the posting transaction is pending
+    When the consumer notification workflow executes
+    Then the platform shall not represent the funds as available until availability is confirmed
+    And shall generate an operational exception if the required availability deadline is at risk
+```
+
+## **Epic 4 — Investigation and evidence management**
+
+### **US-010: Assign and manage investigation tasks**
+
+**User story**
+
+As a disputes investigator, I want the platform to generate investigation tasks based on the dispute type, so that the bank performs a consistent and reasonable investigation.
+
+**Acceptance criteria**
+
+```
+Feature: Investigation workflow
+
+  Scenario: ACH dispute investigation
+    Given a dispute is classified as an ACH error
+    When the investigation workflow is initiated
+    Then the platform shall create applicable ACH investigation tasks
+    And identify the relevant transaction details
+    And request available supporting ACH evidence
+    And assign an investigator
+
+  Scenario: Debit card dispute investigation
+    Given a dispute is classified as a debit card error
+    When the investigation workflow is initiated
+    Then the platform shall create applicable card investigation tasks
+    And identify the transaction and authorization details
+    And request available supporting card evidence
+    And assign an investigator
+
+  Scenario: Investigator requests additional information
+    Given an investigation is in progress
+    When the investigator identifies missing evidence
+    Then the platform shall create an evidence request task
+    And record the evidence requested
+    And track the request status
+    And retain the regulatory deadline
+```
+
+### **US-011: Capture investigation evidence and decision rationale**
+
+**User story**
+
+As a compliance officer, I want all evidence and investigation decisions retained in the dispute record, so that the bank can demonstrate that it performed a reasonable investigation.
+
+**Acceptance criteria**
+
+```
+Feature: Evidence management
+
+  Scenario: Evidence is attached to a dispute
+    Given an investigation is in progress
+    When an investigator uploads supporting evidence
+    Then the platform shall associate the evidence with the dispute
+    And record the evidence source
+    And record the upload timestamp
+    And record the user who uploaded the evidence
+
+  Scenario: Investigator completes investigation
+    Given all required investigation activities are complete
+    When the investigator records the outcome
+    Then the platform shall require an investigation rationale
+    And capture the evidence relied upon
+    And capture the determination date
+    And prevent closure without a recorded outcome
+
+  Scenario: Evidence is modified or removed
+    Given evidence is associated with a dispute
+    When an authorized user modifies its status or removes it
+    Then the platform shall record the action
+    And retain the applicable audit history
+    And preserve evidence retention requirements
+```
+
+### **US-012: Determine final investigation outcome**
+
+**User story**
+
+As a disputes investigator, I want to record whether an EFT error occurred, so that the platform can execute the appropriate financial and notification actions.
+
+**Acceptance criteria**
+
+```
+Feature: Investigation determination
+
+  Scenario: Error confirmed
+    Given the investigation establishes that an EFT error occurred
+    When the investigator records the final determination
+    Then the platform shall classify the outcome as "Error Confirmed"
+    And calculate the required correction amount
+    And initiate the appropriate account correction
+    And trigger the consumer notification workflow
+
+  Scenario: No error identified
+    Given the investigation establishes that no EFT error occurred
+    When the investigator records the final determination
+    Then the platform shall classify the outcome as "No Error"
+    And require an explanation of the investigation findings
+    And initiate the consumer notification workflow
+    And evaluate whether provisional credit reversal is applicable
+
+  Scenario: Different or partial error identified
+    Given the investigation establishes an error different from the one alleged
+    Or establishes an error involving a different amount
+    When the investigator records the determination
+    Then the platform shall capture the actual error
+    And calculate the appropriate correction
+    And generate the required written explanation
+    And retain the original allegation separately from the final determination
+```
+
+## **Epic 5 — Final resolution, account correction, and consumer notifications**
+
+### **US-013: Complete account correction when an error is confirmed**
+
+**User story**
+
+As a disputes operations user, I want the platform to correct confirmed EFT errors promptly, so that the consumer's account reflects the appropriate financial adjustment.
+
+**Acceptance criteria**
+
+```
+Feature: Correct confirmed EFT errors
+
+  Scenario: Full error confirmed
+    Given the investigation establishes that the alleged EFT error occurred
+    When the investigator records the determination
+    Then the platform shall calculate the amount required to correct the error
+    And initiate the correction within one business day after determining the error
+    And record the correction transaction reference
+    And update the case status to "Resolved - Error Confirmed"
+
+  Scenario: Partial error confirmed
+    Given the investigation establishes that only part of the alleged amount is incorrect
+    When the investigator records the determination
+    Then the platform shall calculate the confirmed error amount
+    And initiate the appropriate account correction
+    And generate an explanation of the partial determination
+    And retain the calculation supporting the adjustment
+
+  Scenario: Correction posting fails
+    Given an error has been confirmed
+    When the account correction transaction fails
+    Then the platform shall retain the confirmed investigation outcome
+    And generate a financial posting exception
+    And escalate the failed correction
+    And continue monitoring the correction until successfully posted
+
+  Scenario: Correction successfully posted
+    Given the correction has been initiated
+    When the core banking system confirms posting
+    Then the platform shall capture the posting date
+    And capture the correction amount
+    And associate the posting reference with the dispute
+```
+
+### **US-014: Generate final resolution notification**
+
+**User story**
+
+As a disputes operations user, I want the platform to automatically generate the required final investigation notification, so that consumers receive timely and understandable resolution information.
+
+**Acceptance criteria**
+
+```
+Feature: Final resolution notification
+
+  Scenario: Error confirmed
+    Given the investigation determines that an error occurred
+    When the investigation is completed
+    Then the platform shall generate a notification describing the error
+    And include the amount of the correction
+    And include the correction posting information when available
+    And initiate delivery within three business days after completing the investigation
+
+  Scenario: No error identified
+    Given the investigation determines that no error occurred
+    When the investigation is completed
+    Then the platform shall generate a written explanation
+    And describe the investigation findings
+    And explain why the bank determined that no error occurred
+    And notify the consumer within three business days after completing the investigation
+
+  Scenario: Different error identified
+    Given the investigation identifies an error different from the alleged error
+    When the final notification is generated
+    Then the notification shall describe the actual error identified
+    And explain the determination
+    And identify the applicable correction
+
+  Scenario: Notification delivery failure
+    Given a final notification has been generated
+    When the delivery provider returns a failure
+    Then the platform shall record the delivery failure
+    And initiate the approved notification recovery process
+    And escalate unresolved delivery failures
+    And preserve the original notification deadline
+```
+
+### **US-015: Reverse provisional credit when no error is found**
+
+**User story**
+
+As a disputes operations user, I want the platform to manage provisional credit reversals in accordance with Regulation E, so that funds are recovered appropriately without violating consumer notification and access requirements.
+
+**Acceptance criteria**
+
+```
+Feature: Provisional credit reversal
+
+  Scenario: No error determined and provisional credit exists
+    Given the investigation concludes that no error occurred
+    And provisional credit was previously granted
+    When the final determination is approved
+    Then the platform shall generate a written explanation
+    And initiate the required notice before debiting provisional credit
+    And calculate the earliest permitted debit date
+    And retain the notice delivery evidence
+
+  Scenario: Five-business-day consumer access period
+    Given the consumer has been notified that provisional credit will be debited
+    When the reversal process is scheduled
+    Then the platform shall preserve the consumer's opportunity to withdraw the funds without charge
+    And shall not debit the provisional credit before the applicable five-business-day period expires
+
+  Scenario: Reversal is executed
+    Given the applicable consumer access period has expired
+    And all required reversal conditions have been satisfied
+    When the reversal is executed
+    Then the platform shall debit the provisional credit amount
+    And capture the debit posting reference
+    And record the debit date and amount
+    And update the case status to "Resolved - No Error"
+
+  Scenario: Reversal posting fails
+    Given a provisional credit reversal is due
+    When the core banking system rejects the debit
+    Then the platform shall record the failed reversal
+    And generate an operational exception
+    And prevent duplicate reversal attempts
+    And retain the investigation outcome independently of the posting status
+```
+
+### **US-016: Provide supporting documentation upon consumer request**
+
+**User story**
+
+As a consumer, I want to obtain the documents the bank relied upon during its investigation, so that I can understand and review the resolution of my dispute.
+
+**Acceptance criteria**
+
+```
+Feature: Consumer supporting documentation
+
+  Scenario: Consumer requests investigation documentation
+    Given an investigation has been completed
+    And the consumer requests copies of documents relied upon
+    When the request is recorded
+    Then the platform shall create a documentation fulfillment task
+    And identify the evidence relied upon
+    And make the relevant documentation retrievable
+    And record the request date and fulfillment date
+
+  Scenario: Documentation is provided
+    Given a consumer has requested supporting documentation
+    When the documents are delivered
+    Then the platform shall record the delivery channel
+    And record the delivery timestamp
+    And retain evidence of fulfillment
+
+  Scenario: Documentation is unavailable
+    Given a consumer requests supporting documentation
+    And the requested evidence cannot be retrieved
+    When the fulfillment task is processed
+    Then the platform shall generate an exception
+    And notify the responsible operations team
+    And track the task until resolved
+```
+
+## **Epic 6 — Audit, compliance, and management reporting**
+
+### **US-017: Maintain a complete regulatory audit trail**
+
+**User story**
+
+As a compliance officer, I want a complete, immutable history of all material dispute events, so that the bank can demonstrate compliance with Regulation E.
+
+**Acceptance criteria**
+
+```
+Feature: Regulatory audit trail
+
+  Scenario: Dispute event is recorded
+    Given a dispute exists
+    When a user or system performs a material action
+    Then the platform shall record the event
+    And capture the event timestamp
+    And capture the acting user or system
+    And capture the previous and new values when applicable
+
+  Scenario: Regulatory deadline is calculated
+    Given a dispute is subject to Regulation E
+    When a regulatory deadline is calculated
+    Then the platform shall record the applicable rule
+    And record the calculation inputs
+    And record the resulting deadline
+    And retain the calculation history
+
+  Scenario: Case is closed
+    Given all applicable resolution activities are complete
+    When the dispute is closed
+    Then the platform shall preserve the full investigation history
+    And preserve all consumer notifications
+    And preserve financial posting references
+    And retain the record according to the bank's approved retention schedule
+
+  Scenario: User attempts to modify a regulatory event
+    Given a regulatory event has been recorded
+    When a user attempts to modify the event
+    Then the platform shall prevent unauthorized modification
+    And retain the original event
+    And record authorized corrections as separate audit events
+```
+
+### **US-018: Generate Regulation E compliance reports**
+
+**User story**
+
+As a disputes compliance manager, I want reports showing regulatory deadlines, investigation outcomes, and provisional credit performance, so that I can monitor compliance and identify control weaknesses.
+
+**Acceptance criteria**
+
+```
+Feature: Regulation E compliance reporting
+
+  Scenario: Generate deadline compliance report
+    Given Regulation E disputes exist during a reporting period
+    When the compliance manager generates the deadline report
+    Then the report shall include total dispute volume
+    And the number resolved within applicable deadlines
+    And the number exceeding applicable deadlines
+    And the number of open disputes approaching deadlines
+    And the percentage of cases resolved within SLA
+
+  Scenario: Generate provisional credit report
+    Given disputes have provisional credit requirements
+    When the compliance manager generates the provisional credit report
+    Then the report shall include eligible cases
+    And provisional credits required
+    And provisional credits posted
+    And posting failures
+    And credits posted after the regulatory deadline
+    And outstanding provisional credit exceptions
+
+  Scenario: Generate channel performance report
+    Given the bank processes both card and ACH disputes
+    When the compliance manager generates a channel performance report
+    Then the report shall distinguish card disputes from ACH disputes
+    And provide separate deadline compliance metrics
+    And provide separate provisional credit metrics
+    And provide comparative operational performance
+
+  Scenario: Drill down into an exception
+    Given a report identifies a regulatory deadline exception
+    When the compliance manager selects the exception
+    Then the platform shall display the underlying dispute
+    And provide the relevant deadline calculation
+    And provide the associated event history
+    And provide the assigned owner and remediation status
+```
+
+### **US-019: Support supervisory review and approval**
+
+**User story**
+
+As a disputes supervisor, I want to review selected investigation decisions and financial adjustments, so that the bank maintains appropriate operational oversight.
+
+**Acceptance criteria**
+
+```
+Feature: Supervisory review
+
+  Scenario: Case requires supervisory approval
+    Given a dispute meets configured supervisory review criteria
+    When the investigator submits the determination
+    Then the platform shall route the case to an authorized supervisor
+    And prevent unauthorized completion of the approval workflow
+    And preserve the regulatory deadline
+
+  Scenario: Supervisor approves determination
+    Given a case is awaiting supervisory approval
+    When an authorized supervisor approves the determination
+    Then the platform shall record the supervisor identifier
+    And record the approval timestamp
+    And release the applicable downstream workflow
+
+  Scenario: Supervisor rejects determination
+    Given a case is awaiting supervisory approval
+    When the supervisor rejects the determination
+    Then the platform shall require a rejection rationale
+    And return the case to the investigator
+    And preserve the original investigation deadline
+```
+
+# **5. Non-functional and technical user stories**
+
+These requirements ensure that the platform is operationally reliable and that compliance controls cannot be bypassed by technical failures.
+
+### **US-020: Centralized Regulation E rules engine**
+
+**User story**
+
+As a product owner, I want all Regulation E deadline and eligibility calculations centralized, so that card and ACH workflows apply consistent regulatory rules.
+
+**Acceptance criteria**
+
+```
+Feature: Centralized Regulation E rules engine
+
+  Scenario: Card dispute invokes regulatory calculation
+    Given a debit card dispute qualifies for Regulation E
+    When the dispute is submitted for deadline calculation
+    Then the platform shall invoke the centralized rules engine
+    And return the applicable deadlines
+    And return the applicable regulatory exception
+
+  Scenario: ACH dispute invokes regulatory calculation
+    Given an ACH dispute qualifies for Regulation E
+    When the dispute is submitted for deadline calculation
+    Then the platform shall invoke the same centralized rules engine
+    And apply the applicable ACH transaction attributes
+    And return the applicable deadlines
+
+  Scenario: Regulatory rule changes
+    Given an approved regulatory rule change is configured
+    When the new rule becomes effective
+    Then the rules engine shall apply the new rule to eligible cases
+    And retain the previous rule version
+    And preserve existing case calculation history
+
+  Scenario: Rule calculation cannot be completed
+    Given a dispute requires a regulatory deadline calculation
+    When the rules engine is unavailable
+    Then the platform shall not silently assign an assumed deadline
+    And generate a system exception
+    And initiate the approved fallback procedure
+```
+
+### **US-021: Ensure idempotent financial transactions**
+
+**User story**
+
+As a payments operations manager, I want provisional credits, corrections, and reversals to be processed without duplicate postings, so that consumer accounts are not incorrectly credited or debited.
+
+**Acceptance criteria**
+
+```
+Feature: Financial transaction idempotency
+
+  Scenario: Duplicate provisional credit request
+    Given a provisional credit has already been successfully posted
+    When the platform receives a duplicate posting request
+    Then the platform shall identify the existing transaction
+    And prevent duplicate credit posting
+    And associate the existing posting reference with the dispute
+
+  Scenario: Duplicate reversal request
+    Given a provisional credit reversal has already been posted
+    When another reversal request is submitted
+    Then the platform shall prevent duplicate debit posting
+    And return the existing transaction status
+
+  Scenario: Core banking interface is unavailable
+    Given a required financial adjustment is initiated
+    When the core banking interface becomes unavailable
+    Then the platform shall retain the pending transaction
+    And retry according to approved recovery controls
+    And reconcile the transaction against the core banking ledger
+```
+
+### **US-022: Support role-based access and segregation of duties**
+
+**User story**
+
+As an information security officer, I want access to dispute actions controlled by user roles, so that sensitive consumer information and financial adjustments are appropriately protected.
+
+**Acceptance criteria**
+
+```
+Feature: Role-based dispute access
+
+  Scenario: Authorized investigator accesses dispute
+    Given a user has an authorized investigator role
+    When the user opens an assigned dispute
+    Then the platform shall grant access according to role permissions
+
+  Scenario: Unauthorized user attempts financial adjustment
+    Given a user does not have financial adjustment permissions
+    When the user attempts to initiate a provisional credit or reversal
+    Then the platform shall reject the action
+    And record the unauthorized attempt
+
+  Scenario: Supervisor approves own restricted action
+    Given segregation-of-duties controls prohibit self-approval
+    When an investigator attempts to approve their own restricted determination
+    Then the platform shall prevent the approval
+    And require an authorized independent approver
+```
+
+### **US-023: Reconcile dispute transactions with core banking**
+
+**User story**
+
+As a reconciliation analyst, I want the disputes platform to reconcile financial adjustments against core banking transactions, so that all dispute-related credits and debits are accounted for.
+
+**Acceptance criteria**
+
+```
+Feature: Dispute financial reconciliation
+
+  Scenario: Successful reconciliation
+    Given the dispute platform has initiated a financial adjustment
+    And the core banking system has posted the adjustment
+    When reconciliation executes
+    Then the platform shall match the dispute reference
+    And match the amount and posting date
+    And mark the transaction as reconciled
+
+  Scenario: Amount mismatch
+    Given a dispute adjustment exists
+    When the core banking posting amount differs from the expected amount
+    Then the platform shall create a reconciliation exception
+    And prevent the exception from being silently closed
+
+  Scenario: Missing posting
+    Given the disputes platform records a successful posting request
+    When no corresponding core banking posting is identified
+    Then the platform shall flag the transaction as unreconciled
+    And assign it for investigation
+```
+
+# **6. Recommended dispute lifecycle and status model**
+
+The following is a recommended logical state model. The implementation should keep investigation status, regulatory status, and financial posting status separate rather than attempting to represent every combination through one case status.
+
+**Dispute lifecycle**
+
+1. **Received**
+
+   Consumer notification captured; regulatory notification date established.
+2. **Classified**
+
+   Product, transaction, error type, and Regulation E applicability determined.
+3. **Investigation in progress**
+
+   Investigator assigned; deadlines calculated; evidence gathered.
+4. **Acknowledgment required / sent**
+
+   Written acknowledgment and oral-notification confirmation controls tracked.
+5. **Provisional credit pending / posted**
+
+   Eligibility, posting, and consumer notification tracked independently.
+6. **Investigation completed**
+
+   Error confirmed, no error, or different/partial error established.
+7. **Financial correction / reversal pending**
+
+   Account adjustment processed and reconciled.
+8. **Consumer notification completed**
+
+   Final investigation outcome and applicable explanation delivered.
+9. **Resolved / closed**
+
+   Required regulatory, financial, and operational activities completed.
+
+**Recommended independent status dimensions**
+
+| Dimension            | Example statuses                                          |
+| -------------------- | --------------------------------------------------------- |
+| Investigation        | Open, In Progress, Pending Evidence, Completed            |
+| Regulatory           | Within SLA, Approaching Deadline, Overdue, Exception      |
+| Provisional credit   | Not Required, Eligible, Pending, Posted, Failed, Reversed |
+| Financial correction | Not Required, Pending, Posted, Failed, Reconciled         |
+| Notification         | Pending, Generated, Sent, Delivered, Failed               |
+| Documentation        | Not Requested, Requested, Fulfilled                       |
+
+This separation is important. For example, an investigation can be completed while the account correction is still pending. Closing the investigation should not incorrectly imply that the financial obligation has been fulfilled.
+
+# **7. Regulatory deadline matrix for development and QA**
+
+This is the key reference table I would give the development team for configuring the rules engine.
+
+| Regulatory event                   | Standard timing            | Exception / condition                                                                                     |
+| ---------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Consumer notification              | Generally 60 calendar days | From transmittal of the periodic statement first reflecting the alleged error                             |
+| Initial investigation              | 10 business days           | 20 business days for qualifying new accounts                                                              |
+| Written acknowledgment             | 10 business days           | Required when investigation cannot be completed within the applicable initial period                      |
+| Provisional credit                 | Within 10 business days    | 20 business days for qualifying new accounts                                                              |
+| Final investigation                | 45 calendar days           | 90 calendar days for qualifying POS debit card, foreign-initiated EFT, and new-account cases              |
+| Error correction                   | 1 business day             | After determining that an error occurred                                                                  |
+| Final outcome notice               | 3 business days            | After completing the investigation                                                                        |
+| Provisional credit notice          | 2 business days            | After granting provisional credit                                                                         |
+| Provisional credit reversal access | 5 business days            | Consumer must have the required opportunity to withdraw funds without charge after notice of the reversal |
+
+**Critical interpretation for engineering:**
+
+- The 45/90-day extended investigation period does not mean the bank can wait 45/90 days to provide provisional credit.
+- The provisional credit deadline remains tied to the applicable 10/20-business-day initial period, subject to permitted exceptions.
+- The 90-day exception is not a blanket extension for all card or ACH disputes.
+- New-account status must be determined using the regulatory definition and transaction timing, not simply the account's current age.
+- A business day must be determined using the Regulation E definition and the institution's applicable operating calendar, not simply by subtracting weekends.
+- Written confirmation requirements for oral notifications must be separately controlled.
+
+# **8. Key regulatory controls and design decisions**
+
+I recommend explicitly addressing the following items during solution design. They are common sources of defects in Regulation E implementations.
+
+| Control                | Required design decision                                                                                                                                                                 |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Oral notification      | Support oral claims without making written submission a general prerequisite for investigation.                                                                                          |
+| Written confirmation   | Track the requirement to provide written confirmation instructions following oral notification. Apply the specific provisional-credit exception only where its conditions are satisfied. |
+| New account            | Determine whether the EFT occurred within 30 days after the first deposit, as required for the applicable timing exception.                                                              |
+| Special 90-day cases   | Identify qualifying POS debit card transactions, foreign-initiated EFTs, and new-account EFTs.                                                                                           |
+| Partial credit         | Support cases where the confirmed error amount differs from the amount alleged.                                                                                                          |
+| Multiple transactions  | Support one claim involving multiple EFTs, with transaction-level evidence and deadline calculations where necessary.                                                                    |
+| Statement availability | Capture statement transmittal date and evidence supporting the 60-day calculation.                                                                                                       |
+| Provisional credit     | Distinguish credit initiation, posting, and consumer availability.                                                                                                                       |
+| No-error outcome       | Require written explanation and controlled provisional credit reversal.                                                                                                                  |
+| Consumer access        | Preserve the applicable five-business-day withdrawal opportunity without charge after notice of a provisional credit debit.                                                              |
+| Evidence requests      | Support consumer requests for copies of documents relied upon in the investigation.                                                                                                      |
+| Exceptions             | Maintain an auditable exception process without automatically resetting regulatory deadlines.                                                                                            |
+
+## **9. Suggested QA test scenarios**
+
+I would make these scenarios mandatory for business acceptance testing.
+
+| Test ID | Scenario                                      | Expected result                                                           |
+| ------- | --------------------------------------------- | ------------------------------------------------------------------------- |
+| RE-001  | Standard ACH unauthorized debit               | 10-business-day initial deadline                                          |
+| RE-002  | Standard debit card unauthorized transaction  | 10-business-day initial deadline                                          |
+| RE-003  | Investigation unresolved after initial period | Provisional credit and extended investigation workflow                    |
+| RE-004  | Qualifying new account                        | 20-business-day initial period and applicable 90-day investigation period |
+| RE-005  | Qualifying POS debit card transaction         | Applicable 90-day investigation period                                    |
+| RE-006  | Foreign-initiated EFT                         | Applicable 90-day investigation period                                    |
+| RE-007  | Oral claim without written confirmation       | Correct confirmation tracking and provisional credit exception handling   |
+| RE-008  | Error confirmed                               | Correction within one business day after determination                    |
+| RE-009  | No error identified                           | Written explanation and controlled provisional credit reversal            |
+| RE-010  | Partial error confirmed                       | Correct amount credited and explanation provided                          |
+| RE-011  | Consumer requests evidence                    | Supporting documentation retrieval and fulfillment                        |
+| RE-012  | Investigation deadline missed                 | Compliance exception and escalation                                       |
+| RE-013  | Duplicate provisional credit request          | No duplicate financial posting                                            |
+| RE-014  | Failed core banking posting                   | Exception and recovery workflow                                           |
+| RE-015  | Case reassigned                               | Original regulatory deadlines preserved                                   |
+| RE-016  | Notification delivery failure                 | Delivery exception and recovery                                           |
+| RE-017  | Weekend and bank holiday deadline             | Correct business-day calculation                                          |
+| RE-018  | Statement notification period                 | Correct 60-day calculation                                                |
+| RE-019  | Multiple EFTs in one claim                    | Individual transaction-level investigation tracking                       |
+| RE-020  | Partial provisional credit                    | Correct credit amount, availability, and final adjustment                 |
+
+## **10. Recommended implementation priorities**
+
+I would structure delivery into four releases.
+
+**Release 1 — Regulatory foundation**
+
+P0 · Critical
+
+- US-001 through US-006
+- US-020 centralized rules engine
+- Business-day calendar
+- Regulatory deadline calculations
+- Notification and acknowledgment framework
+
+**Release 2 — Financial compliance**
+
+P0 · Critical
+
+- US-007 through US-009
+- US-013 through US-015
+- Provisional credit integration
+- Financial correction and reversal
+- Core banking reconciliation
+
+**Release 3 — Investigation and audit**
+
+P1 · High
+
+- US-010 through US-012
+- US-016 and US-017
+- Evidence management
+- Investigation decisions
+- Consumer documentation fulfillment
+
+**Release 4 — Governance and optimization**
+
+P1 · High
+
+- US-018 and US-019
+- US-021 through US-023
+- Management reporting
+- Segregation of duties
+- Operational reconciliation and monitoring
+
+## **11. Definition of Done**
+
+A user story should not be considered complete merely because the functional workflow works.
+
+The following conditions should apply to every applicable Regulation E feature:
+
+- Business requirements approved by Product, Operations, and Compliance.
+- Regulatory rule and calculation independently validated.
+- Positive and negative Gherkin scenarios passed.
+- Card and ACH channel testing completed.
+- Business-day and holiday testing completed.
+- Financial posting and reconciliation validated.
+- Consumer notifications validated.
+- Audit history verified.
+- Role-based access and segregation of duties tested.
+- Failed integrations and retry scenarios tested.
+- Compliance reporting validated.
+- Operational procedures and exception handling documented.
+
+## **12. Regulatory references**
+
+The development team and Compliance should use these primary references when validating the requirements:
+
+1. **12 CFR § 1005.11 — Procedures for resolving errors**: Primary regulation covering notification, investigation, provisional credit, final determination, and supporting documentation.
+2. **12 CFR § 1005.2(d) — Business day**: Definition used for applicable regulatory deadlines.
+3. **12 CFR § 1005.6 — Liability of consumer for unauthorized transfers**: Relevant to unauthorized EFTs and consumer notification timing.
+4. **12 CFR § 1005.7 — Initial disclosures**: Relevant to consumer disclosures and applicable account requirements.
+5. **Official commentary to Regulation E, Supplement I**: Important interpretive guidance for applying the error-resolution requirements.
+
+Official regulatory source: [CFPB — Regulation E, § 1005.11](https://www.consumerfinance.gov/rules-policy/regulations/1005/11/?utm_source=chatgpt.com).
+
+## **13. Final business analyst recommendation**
+
+For a bank implementing this across card and ACH, I would make three architectural decisions mandatory before development begins:
+
+**1. Build one Regulation E compliance engine.**
+
+Card and ACH should share the same regulatory deadline, eligibility, notification, and audit services. Channel-specific investigation procedures should remain separate.
+
+**2. Separate investigation resolution from financial resolution.**
+
+A case can have a completed investigation but an outstanding financial correction, provisional credit reversal, or notification. These must have separate completion criteria.
+
+**3. Treat regulatory deadlines as non-negotiable control dates.**
+
+Reassignment, missing evidence, system outages, approval delays, and internal SLAs must not silently reset or extend regulatory deadlines.
+
+**One important legal-review caveat:** This backlog is a functional requirements baseline, not a legal opinion. Before production sign-off, Bank Legal and Compliance should validate each timing rule, exception, and notification template against the current text of § 1005.11 and its official commentary. Particular attention should be given to the interaction between the 10/20-business-day provisional-credit requirements and the 45/90-calendar-day investigation periods.
+
+**Recommended next deliverable:** Convert these 23 stories into a Jira-ready backlog with Epic IDs, story IDs, priority, dependencies, business rules, Gherkin scenarios, and testable Definition of Ready/Done criteria.

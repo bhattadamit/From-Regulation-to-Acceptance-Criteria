@@ -1,0 +1,221 @@
+Below is a prioritized backlog of epics and user stories covering the core regulatory requirements of **Regulation E (12 CFR § 1005.11)** for Electronic Fund Transfer (EFT) error resolution across debit card and ACH channels.
+
+---
+
+### Epic 1: Error Notice Intake & Classification
+
+#### Story 1.1: Capture Error Notice and Trigger Regulatory Clocks
+
+**As a** Dispute Intake Specialist,
+
+**I want** the platform to capture the exact timestamp of a consumer's oral or written error notice and classify the dispute under Regulation E,
+
+**So that** the system immediately starts the 10-business-day investigation clock and tracks the 60-day reporting window.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Regulation E Error Notice Intake and Clock Initialization
+
+  Scenario: Consumer submits a timely oral error notice within 60 days of statement date
+    Given a consumer holds a Reg E covered consumer asset account
+    And an unauthorized ACH debit posted to the account on "2026-10-05"
+    And the periodic statement containing the transaction was transmitted on "2026-11-01"
+    When the Dispute Intake Specialist logs an oral error notice on "2026-11-20"
+    Then the system classifies the claim as "Reg E - Timely"
+    And calculates the 10-business-day investigation deadline excluding weekends and federal holidays
+    And sets a prompt-report flag if the notice is within 2 business days of learning of a lost/stolen access device
+
+  Scenario: Consumer submits an error notice after the 60-day periodic statement window
+    Given a periodic statement containing an alleged error was transmitted on "2026-09-01"
+    When the consumer submits an error notice on "2026-11-15" (more than 60 days after statement transmittal)
+    Then the system flags the claim as "Out of 60-Day Window - Consumer Liability Assessment Required"
+    And routes the case to a Senior Investigator to evaluate untimely reporting liability under 12 CFR 1005.6
+
+```
+
+#### Story 1.2: Written Confirmation Requirement for Oral Notices
+
+**As a** Compliance Operations Manager,
+
+**I want** the system to conditionally require written confirmation within 10 business days of an oral error notice before provisional credit is mandatory,
+
+**So that** the bank exercises its right under § 1005.11(b)(2) while ensuring clear consumer disclosure at intake.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Written Confirmation Tracking for Oral Error Notices
+
+  Scenario: Bank requires written confirmation at the time of oral notice
+    Given a consumer reports an EFT error orally on "2026-11-20"
+    And the intake agent reads the mandatory disclosure requesting written confirmation within 10 business days
+    And the system provides the consumer with the designated mailing/digital submission address
+    When the case is saved
+    Then the system generates a "Written Confirmation Due" milestone set to 10 business days from "2026-11-20"
+    And dispatches an automated confirmation form to the consumer's preferred communication channel
+
+  Scenario: Consumer fails to provide requested written confirmation within 10 business days
+    Given an oral error notice was logged with a mandatory written confirmation request
+    And the 10-business-day investigation deadline arrives without receipt of written confirmation
+    When the investigator has not yet completed the investigation
+    Then the system waives the mandatory provisional credit requirement
+    And maintains the 45-calendar-day investigation deadline to complete the error resolution
+
+```
+
+---
+
+### Epic 2: Investigation Timelines & Provisional Credit
+
+#### Story 2.1: Enforce 10-Business-Day Resolution or Provisional Credit Issuance
+
+**As a** Dispute Investigator,
+
+**I want** the platform to automatically issue provisional credit (including applicable interest) on or before Business Day 10 if an investigation remains open,
+
+**So that** the bank complies with § 1005.11(c)(2) and extends the investigation window to 45 calendar days.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: 10-Business-Day Investigation Limit and Provisional Credit
+
+  Scenario: Investigation cannot be completed within 10 business days
+    Given an open Reg E dispute for $450.00 where written confirmation was either received or not required
+    And the investigation status is still "In Progress" on Business Day 9
+    When the nightly batch job runs prior to the end of Business Day 10
+    Then the system posts a provisional credit of $450.00 (plus accrued interest if an interest-bearing account) to the consumer's account
+    And updates the investigation SLA deadline to 45 calendar days from the initial notice date
+    And queues a "Provisional Credit Notice" to be sent within 2 business days of crediting
+
+  Scenario: New account 20-business-day timeline extension
+    Given a consumer opened their deposit account on "2026-11-05"
+    And reports an EFT error on "2026-11-20" (within 30 calendar days of the first deposit)
+    When the case is created
+    Then the system sets the initial investigation/provisional credit deadline to 20 business days instead of 10 business days
+
+```
+
+#### Story 2.2: Extended 90-Calendar-Day Investigation Window
+
+**As a** Dispute Investigator,
+
+**I want** the system to apply a 90-calendar-day investigation window when specific regulatory triggers apply,
+
+**So that** complex foreign, point-of-sale, or new-account disputes have adequate time for network/merchant representment.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: 90-Calendar-Day Extended Investigation Timeline
+
+  Scenario Outline: Dispute qualifies for 90-calendar-day investigation window
+    Given a Reg E dispute has received timely provisional credit
+    And the disputed transaction meets the condition "<Trigger_Condition>"
+    When the system calculates the final resolution deadline
+    Then the final resolution deadline is set to 90 calendar days from the date of the initial error notice
+
+    Examples:
+      | Trigger_Condition                                         |
+      | Point-of-sale (POS) debit card transaction                |
+      | Transaction initiated outside the United States           |
+      | Transaction occurred within 30 days of first deposit      |
+
+```
+
+---
+
+### Epic 3: Resolution Outcomes, Final Credit & Reversal Controls
+
+#### Story 3.1: Confirm Error and Finalize Credit
+
+**As a** Dispute Investigator,
+
+**I want** the platform to finalize provisional credit (or issue full credit plus refunded fees/interest) within 1 business day of determining an error occurred,
+
+**So that** the consumer is made whole within the strict § 1005.11(c)(1) timeframe.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Error Confirmed - Final Credit and Fee Reimbursement
+
+  Scenario: Error is confirmed after provisional credit was already issued
+    Given a Reg E claim for $200.00 has an active provisional credit of $200.00
+    And the unauthorized debit caused a $35.00 bank overdraft fee
+    When the investigator marks the determination as "Error Confirmed"
+    Then within 1 business day the system converts the provisional credit to a permanent credit
+    And automatically refunds the $35.00 overdraft fee to the consumer's account
+    And generates a "Final Resolution - Error Confirmed" notice to be sent promptly
+
+  Scenario: Error is confirmed within the initial 10-business-day window without provisional credit
+    Given a Reg E claim for $125.00 has no prior provisional credit
+    When the investigator marks the determination as "Error Confirmed" on Business Day 6
+    Then the system posts a permanent credit of $125.00 within 1 business day
+    And closes the case upon sending the prompt credit confirmation notice
+
+```
+
+#### Story 3.2: No Error Found and Reversal of Provisional Credit
+
+**As a** Dispute Investigator,
+
+**I want** the platform to generate a written explanation, provide supporting documentation upon request, and honor checks/preauthorized debits for 5 business days when reversing provisional credit,
+
+**So that** the bank complies with § 1005.11(d) without causing unfair returned-item fees to the consumer.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: No Error Found and Provisional Credit Reversal Protections
+
+  Scenario: Investigator determines no error occurred and reverses provisional credit
+    Given a Reg E claim for $300.00 has an active provisional credit
+    When the investigator sets the determination to "No Error Found" and submits the written findings
+    Then the system generates a "No Error Explanation Notice" stating the consumer's right to request copies of documents relied upon
+    And schedules the $300.00 debit reversal
+    And sends the notice within 3 business days of completing the investigation
+
+  Scenario: Five-business-day honor window for third-party items after reversal
+    Given a provisional credit of $300.00 was reversed on "2026-12-01"
+    And the consumer's available balance drops to $50.00 solely due to the reversal
+    When a $200.00 check or preauthorized ACH debit is presented against the account on "2026-12-04" (within 5 business days of reversal notice)
+    Then the core banking interface honors the $200.00 item without charging an overdraft or NSF fee
+    And suppresses courtesy pay/overdraft fees on that item as required by 12 CFR 1005.11(d)(2)(ii)
+
+```
+
+---
+
+### Epic 4: Document Production & Audit Trail
+
+#### Story 4.1: Consumer Request for Investigation Documentation
+
+**As a** Compliance Specialist,
+
+**I want** a workflow to fulfill consumer requests for documents relied upon in a "No Error Found" determination,
+
+**So that** the bank promptly delivers unredacted consumer-facing evidence (e.g., signed receipts, IP logs, merchant representment) under § 1005.11(d)(1).
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Provision of Relied-Upon Investigation Documents
+
+  Scenario: Consumer requests documentation after receiving a denial notice
+    Given a Reg E dispute was closed as "No Error Found"
+    When the consumer requests copies of the documents relied upon for the decision
+    Then the system creates a high-priority "Reg E Document Request" task
+    And compiles all evidentiary artifacts attached to the case (excluding internal bank fraud-scoring models or non-public SAR data)
+    And logs the fulfillment timestamp and delivery method in the permanent compliance audit trail
+
+```
+
+---
+
+### Key Implementation Notes for Engineering & QA
+
+* **Business Day Calendar:** Regulation E defines a "business day" as any day on which the offices of the financial institution are open to the public for carrying on substantially all business functions (typically Monday–Friday, excluding federal holidays), distinct from calendar days used for the 45-, 60-, and 90-day rules.
+* **Card Network Rule Interplay:** Where Visa/Mastercard zero-liability or chargeback timelines are shorter (e.g., 5 business days for provisional credit), configure network-specific overrides so the system defaults to whichever rule is **more favorable to the consumer**.
+* **Duplicate Claim Prevention:** If a consumer reasserts the same error after a compliant investigation and resolution under § 1005.11(e), the platform should flag the claim as a duplicate assertion with no further investigation obligation.

@@ -1,0 +1,202 @@
+## Epic: Regulation E Error Resolution Compliance (12 CFR § 1005.11)
+
+**Objective:** Implement automated timeline tracking, provisional credit workflows, liability tier calculations, and mandatory consumer disclosures within the Card and ACH Disputes Platform to ensure strict adherence to Regulation E (12 CFR § 1005.11) and consumer liability limits (12 CFR § 1005.6).
+
+---
+
+### Story 1: Automated SLA Timer & Provisional Credit Calculation
+
+**As a** Disputes Operations Specialist,
+
+**I want** the platform to automatically calculate and track the 10-business-day and 45-calendar-day (or extended 20/90-day) investigation timelines upon receipt of a Regulation E error notice,
+
+**So that** provisional credit is issued before statutory deadlines expire and the bank avoids regulatory violations.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Regulation E Investigation Timelines and Provisional Credit Triggers
+
+  Background:
+    Given the disputes platform is configured with the Federal Reserve holiday calendar
+    And a consumer submits a Notice of Error covered under 12 CFR 1005.11 (Card or ACH)
+
+  Scenario: Standard 10-business-day investigation window for an established account
+    Given the consumer's account has been open for more than 30 calendar days
+    And the disputed transaction is a domestic ACH debit or non-point-of-sale EFT
+    When the Notice of Error is logged on Business Day 0
+    Then the system sets the "Initial Investigation Deadline" to Business Day 10
+    And the system sets the "Final Resolution Deadline" to Calendar Day 45 from the notice date
+
+  Scenario: Extended 20-business-day / 90-calendar-day window for new accounts
+    Given the consumer's account was opened 30 calendar days or less prior to the disputed EFT
+    When the Notice of Error is logged on Business Day 0
+    Then the system sets the "Initial Investigation Deadline" to Business Day 20
+    And the system sets the "Final Resolution Deadline" to Calendar Day 90 from the notice date
+
+  Scenario: Extended 90-calendar-day window for POS debit card or foreign-initiated transactions
+    Given the consumer's account has been open for more than 30 calendar days
+    And the disputed transaction is either a Point-of-Sale (POS) debit card transaction or initiated outside the United States
+    When the Notice of Error is logged on Business Day 0
+    Then the system sets the "Initial Investigation Deadline" to Business Day 10
+    And the system sets the "Final Resolution Deadline" to Calendar Day 90 from the notice date
+
+  Scenario: Triggering Provisional Credit when investigation exceeds initial window
+    Given an open dispute case has reached Business Day 9 of its initial investigation window
+    And the case status is not "Resolved - Final"
+    And the bank has not required written confirmation that the consumer failed to provide
+    When the nightly batch SLA job executes
+    Then the system flags the case for mandatory Provisional Credit
+    And calculates the Provisional Credit amount equal to the disputed amount plus any associated bank fees (e.g., NSF/overdraft fees), minus applicable consumer liability under 12 CFR 1005.6
+    And triggers an automated posting instruction to credit the consumer's account by the end of Business Day 10
+
+```
+
+---
+
+### Story 2: Oral Notice & Written Confirmation Enforcement
+
+**As a** Dispute Intake Agent,
+
+**I want** the system to capture oral error notices, conditionally request written confirmation within 10 business days, and adjust provisional credit eligibility if written confirmation is not received,
+
+**So that** the bank enforces its rights under 12 CFR § 1005.11(b)(2) without delaying the underlying investigation.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Written Confirmation Tracking for Oral Error Notices
+
+  Scenario: Consumer provides oral notice and bank requests written confirmation
+    Given a consumer reports an EFT error via phone or in-branch (Oral Notice) on Business Day 0
+    When the intake agent logs the dispute and selects "Require Written Confirmation"
+    Then the system immediately generates and dispatches a Written Confirmation Request form to the consumer
+    And sets a "Written Confirmation Due Date" of Business Day 10
+    And starts the 10-business-day / 45-calendar-day investigation clocks immediately without waiting for the form
+
+  Scenario: Consumer fails to return written confirmation by Business Day 10
+    Given the bank requested written confirmation at the time of oral notice
+    And the "Written Confirmation Due Date" (Business Day 10) has passed without a logged receipt
+    And the investigation remains open
+    When the SLA workflow evaluates provisional credit eligibility
+    Then the system waives the requirement to issue Provisional Credit
+    And keeps the Final Resolution Deadline active (Calendar Day 45 or 90) so the investigation continues to completion
+
+  Scenario: Consumer submits written confirmation on or before Business Day 10
+    Given the bank requested written confirmation at the time of oral notice
+    When the operations specialist uploads and verifies the signed written confirmation on Business Day 7
+    Then the system marks "Written Confirmation Received = True"
+    And retains the mandatory Provisional Credit trigger for Business Day 10 if the investigation is still open
+
+```
+
+---
+
+### Story 3: Consumer Liability Tier Engine (12 CFR § 1005.6)
+
+**As a** Disputes Adjudication Engine,
+
+**I want** to automatically calculate maximum consumer liability based on whether an access device was lost/stolen, the timing of the report, and periodic statement delivery dates,
+
+**So that** unauthorized EFT losses are accurately allocated between the consumer and the bank.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Automated Regulation E Consumer Liability Calculation
+
+  Scenario: Unauthorized EFT without loss or theft of an access device (e.g., ACH fraud or card skimming)
+    Given the dispute reason is "Unauthorized EFT"
+    And the consumer still possesses their physical debit card / access device
+    When the consumer reports the unauthorized transfer within 60 calendar days of transmittal of the periodic statement showing the first unauthorized transfer
+    Then the system calculates Consumer Liability as $0.00
+
+  Scenario: Lost or stolen debit card reported within 2 business days of learning of loss/theft
+    Given the dispute reason is "Unauthorized EFT - Lost/Stolen Card"
+    And the consumer learned of the loss or theft on Business Day 0
+    When the consumer notifies the bank on or before Business Day 2
+    Then the system caps Consumer Liability at the lesser of $50.00 or the total amount of unauthorized transfers prior to notice
+
+  Scenario: Lost or stolen debit card reported after 2 business days but within 60 days of statement
+    Given the dispute reason is "Unauthorized EFT - Lost/Stolen Card"
+    And the consumer learned of the loss or theft on Business Day 0
+    And the consumer notifies the bank on Business Day 5
+    When the system evaluates unauthorized transfers occurring before and after the 2-business-day window
+    Then the system caps Consumer Liability at $500.00 total (comprising up to $50.00 for transfers within the first 2 business days, plus up to $450.00 for transfers occurring after Business Day 2 and before notice)
+
+  Scenario: Failure to report unauthorized transfers within 60 calendar days of periodic statement transmittal
+    Given a periodic statement reflecting an unauthorized EFT was transmitted on Day 0
+    And the consumer fails to report the unauthorized EFT on or before Day 60
+    When the consumer reports the unauthorized EFTs on Day 75
+    Then the system sets Consumer Liability to $0.00 (or applicable $50/$500 tier) for transfers occurring within the 60-day window
+    And sets Consumer Liability to 100% (unlimited) for unauthorized transfers occurring after Day 60 and prior to notice, provided the bank demonstrates those losses would not have occurred had the consumer notified the bank within 60 days
+
+```
+
+---
+
+### Story 4: Error Determination, Final Credit, and Provisional Credit Reversal
+
+**As a** Disputes Investigator,
+
+**I want** the platform to enforce statutory notice periods and debit-reversal protections when closing an investigation as either "Error Occurred" or "No Error / Different Error Occurred,"
+
+**So that** consumer accounts are settled accurately and honored items are protected during provisional credit clawbacks.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Final Resolution and Provisional Credit Reversal Workflows
+
+  Scenario: Determination that an error occurred
+    Given an investigator sets the case disposition to "Error Occurred"
+    When the investigator submits the final determination
+    Then the system corrects the error (credits any remaining withheld amount and refunds associated bank fees) within 1 business day of the determination
+    And converts any previously issued Provisional Credit to "Final Credit"
+    And generates a "Notice of Final Credit" to the consumer within 3 business days of completing the investigation
+
+  Scenario: Determination that no error occurred when Provisional Credit was previously issued
+    Given Provisional Credit of $400.00 was posted to the consumer's account on Business Day 10
+    And the investigator sets the case disposition to "No Error Occurred" on Calendar Day 32
+    When the investigator submits the final determination
+    Then the system generates a "Written Explanation of Findings" within 3 business days, including notice of the consumer's right to request copies of documents relied upon
+    And schedules the Provisional Credit reversal debit for exactly 5 business days after the notice is sent
+    And enforces a 5-business-day "Honoring Period" flag on the core banking ledger so the bank honors checks, drafts, and preauthorized debits to third parties without charging overdraft fees to the extent those items would have been paid had the provisional credit not been debited
+
+```
+
+---
+
+### Story 5: Mandatory Consumer Disclosures & Document Request Fulfillment
+
+**As a** Compliance Officer,
+
+**I want** all Regulation E consumer communications and document requests to be automatically generated, timestamped, and archived,
+
+**So that** the bank maintains a complete audit trail for CFPB and prudential bank examinations.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Regulation E Mandatory Notices and Audit Logging
+
+  Scenario: Provisional Credit Notice generation
+    Given Provisional Credit is posted to the consumer's account on Business Day 10
+    When the credit transaction settles on the core ledger
+    Then within 2 business days of crediting the account, the system dispatches a "Notice of Provisional Credit" stating the amount credited, the date credited, and that the consumer has full use of the funds during the investigation
+
+  Scenario: Consumer requests supporting investigation documents after a "No Error" determination
+    Given a case was closed as "No Error Occurred"
+    When a consumer requests copies of the documents relied upon in making the determination
+    Then the system creates a high-priority "Document Fulfillment Task"
+    And bundles the merchant receipts, ACH trace records, or authentication logs into a redacted packet for prompt delivery to the consumer
+    And logs the request timestamp, fulfillment timestamp, and delivery method in the immutable audit trail
+
+```
+
+---
+
+### Implementation & BA Notes for Architecture Review
+
+* **Exclusions / Non-Reg E Routing:** Ensure intake triage separates B2B/commercial accounts (governed by UCC Article 4A / NACHA rules) and credit card disputes (governed by Regulation Z, 12 CFR § 1026.13) before instantiating Reg E timers. Hybrid debit/credit products require dual-rule routing depending on whether the transaction accessed the asset account or credit line.
+* **Core Banking Integration:** The 5-business-day honoring rule upon provisional credit reversal (12 CFR § 1005.11(d)(2)(ii)) requires an explicit shadow-balance or fee-suppression flag on the DDA core so automated NSF/OD engines do not penalize the consumer for checks/ACH debits clearing during that 5-day window.

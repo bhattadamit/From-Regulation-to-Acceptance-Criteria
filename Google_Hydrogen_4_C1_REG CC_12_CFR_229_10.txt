@@ -1,0 +1,261 @@
+Here are the user stories and Gherkin acceptance criteria required to implement **Regulation CC (12 CFR § 229.10) Next-Day Availability** rules within the core deposit hold engine.
+
+---
+
+### Epic: Regulation CC Next-Day Funds Availability Engine (12 CFR § 229.10)
+
+**Business Objective:** Ensure the deposit hold engine accurately identifies deposits eligible for mandatory next-business-day availability under 12 CFR § 229.10, applies the correct hold release timestamps, and prevents compliance violations—while accounting for standard Reg CC exceptions (e.g., new accounts under § 229.13(a) or exception holds under § 229.13(b)–(f)).
+
+---
+
+### Story 1: Electronic Payments and Cash Deposits (In-Person / Proprietary ATM)
+
+**As a** Deposit Operations Compliance Officer,
+
+**I want** the deposit hold engine to automatically grant next-business-day availability to electronic payments and cash deposits made in person to a bank employee,
+
+**So that** the bank complies with 12 CFR § 229.10(a) and § 229.10(b) without placing erroneous holds on immediately collectible funds.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Next-Day Availability for Cash and Electronic Payments (12 CFR 229.10(a)-(b))
+
+  Background:
+    Given the deposit hold engine is evaluating a transaction into an active transaction account
+    And the account is not subject to a valid Regulation CC exception hold under 12 CFR 229.13
+
+  Scenario Outline: Cash deposited in person to a bank employee
+    Given a customer deposits "<amount>" in cash
+    And the deposit channel is "<channel>"
+    And the deposit is received on "<deposit_day>" at "<deposit_time>" before the branch cutoff time
+    When the deposit hold engine evaluates the transaction
+    Then no Reg CC hold shall be placed on the deposit
+    And the funds availability date shall be set to "<availability_date>" at 09:00 AM local bank time
+
+    Examples:
+      | amount   | channel         | deposit_day | deposit_time | availability_date  |
+      | $500.00  | Branch Teller   | Tuesday     | 14:30        | Wednesday (Next BD)|
+      | $5000.00 | Proprietary ATM | Friday      | 11:00        | Monday (Next BD)   |
+
+  Scenario Outline: Electronic payments (Wire Transfers and ACH Credits)
+    Given the bank receives an incoming "<payment_type>" for "<amount>"
+    And the settlement funds are received by the bank on "<settlement_day>"
+    When the deposit hold engine processes the credit
+    Then no Reg CC hold shall be placed on the funds
+    And the full "<amount>" shall be made available for withdrawal no later than "<availability_date>"
+
+    Examples:
+      | payment_type | amount     | settlement_day | availability_date   |
+      | Fedwire      | $25,000.00 | Monday         | Tuesday (Next BD)   |
+      | ACH Credit   | $3,200.00  | Thursday       | Friday (Next BD)    |
+
+```
+
+---
+
+### Story 2: U.S. Treasury, USPS Money Orders, and Federal Reserve/FHLB Checks
+
+**As a** Deposit Operations Compliance Officer,
+
+**I want** the hold engine to grant next-business-day availability to U.S. Treasury checks, U.S. Postal Service money orders, and checks drawn on a Federal Reserve Bank or Federal Home Loan Bank when deposited into the payee's account,
+
+**So that** the bank satisfies the strict payee-specific criteria under 12 CFR § 229.10(c)(1)(i)–(iii).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Next-Day Availability for Federal Government and Postal Instruments (12 CFR 229.10(c)(1)(i)-(iii))
+
+  Background:
+    Given an established customer account (open > 30 calendar days)
+    And no Reg CC exception holds (12 CFR 229.13) are triggered
+
+  Scenario Outline: Government and Postal instruments deposited into the named payee's account
+    Given a check of type "<instrument_type>" for "<amount>"
+    And the check is deposited via "<channel>"
+    And the named payee on the check matches the account holder ("<payee_match>")
+    When the deposit hold engine evaluates the item
+    Then the engine shall assign a next-business-day availability schedule
+    And the hold release timestamp shall be set to the start of the next business day
+
+    Examples:
+      | instrument_type         | amount    | channel       | payee_match |
+      | U.S. Treasury Check     | $1,850.00 | Branch Teller | True        |
+      | U.S. Treasury Check     | $1,850.00 | Proprietary ATM| True       |
+      | USPS Money Order        | $450.00   | Branch Teller | True        |
+      | Federal Reserve Check   | $10,000.00| Branch Teller | True        |
+      | Federal Home Loan Check | $7,500.00 | Branch Teller | True        |
+
+  Scenario: USPS Money Order or Federal Bank check NOT deposited in person to a bank employee
+    Given a "USPS Money Order" for "$600.00" payable to the account holder
+    And the deposit channel is "Proprietary ATM" (not in person to a bank employee)
+    When the deposit hold engine evaluates the item
+    Then the item shall NOT receive mandatory 229.10(c)(1) next-day availability
+    And the engine shall route the item to second-business-day availability under 12 CFR 229.10(c)(2)
+
+```
+
+*(Note: Under 12 CFR § 229.10(c)(1)(i), U.S. Treasury checks qualify for next-day availability even if deposited at a proprietary ATM, whereas USPS money orders and FRB/FHLB checks require in-person deposit to a bank employee—otherwise falling under § 229.10(c)(2) for second-business-day availability.)*
+
+---
+
+### Story 3: State/Local Government, Cashier's, Certified, and Teller's Checks (with Special Deposit Slip Logic)
+
+**As a** Core Banking Product Owner,
+
+**I want** the deposit hold engine to evaluate instrument type, issuing jurisdiction, payee match, in-person presentation, and special deposit slip usage for state/local government checks and bank-issued checks,
+
+**So that** the bank accurately enforces the conditional next-day rules under 12 CFR § 229.10(c)(1)(iv)–(v).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Conditional Next-Day Availability for State/Local and Official Bank Checks (12 CFR 229.10(c)(1)(iv)-(v))
+
+  Background:
+    Given an established customer account (open > 30 calendar days)
+    And no Reg CC exception holds (12 CFR 229.13) are triggered
+
+  Scenario Outline: In-person deposit of State/Local or Official Bank checks meeting all 229.10(c)(1) criteria
+    Given a check of type "<check_type>" for "<amount>"
+    And the check is payable to the account holder
+    And the deposit is made in person to a bank employee
+    And the same-state requirement is "<same_state_met>"
+    And the special deposit slip requirement is "<special_slip_used>"
+    When the deposit hold engine evaluates the item
+    Then the engine shall grant next-business-day availability for the full "<amount>"
+
+    Examples:
+      | check_type             | amount    | same_state_met | special_slip_used |
+      | State Government Check | $2,400.00 | True (Same State) | True (or Not Required) |
+      | Local Government Check | $1,100.00 | True (Same State) | True (or Not Required) |
+      | Cashier's Check        | $15,000.00| N/A            | True (or Not Required) |
+      | Certified Check        | $8,000.00 | N/A            | True (or Not Required) |
+      | Teller's Check         | $5,500.00 | N/A            | True (or Not Required) |
+
+  Scenario: Bank requires a special deposit slip, and the customer omits it
+    Given the bank's Reg CC policy enforces special deposit slips for "Cashier's Checks"
+    And a customer deposits a "Cashier's Check" for "$4,000.00" in person using a standard deposit slip
+    When the deposit hold engine evaluates the item
+    Then the engine shall downgrade the item from 229.10(c)(1) next-day availability
+    And apply second-business-day availability under 12 CFR 229.10(c)(2)
+
+```
+
+---
+
+### Story 4: "On-Us" Checks Drawn on the Same Bank
+
+**As a** Deposit Operations Compliance Officer,
+
+**I want** the hold engine to grant next-business-day availability to checks drawn on our own bank (including branches in the same state or same check-processing region),
+
+**So that** internal clearing items adhere to 12 CFR § 229.10(c)(1)(vi).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Next-Day Availability for On-Us Checks (12 CFR 229.10(c)(1)(vi))
+
+  Scenario: On-Us check deposited at a branch or proprietary ATM
+    Given a check drawn on an internal routing transit number (RTN) belonging to this bank
+    And the check is deposited via "<channel>" before the daily cutoff time
+    And the account is not subject to a Reg CC exception hold
+    When the deposit hold engine evaluates the item
+    Then the engine shall identify the item as an "On-Us" check under 12 CFR 229.10(c)(1)(vi)
+    And set the full deposit amount to be available on the next business day
+
+    Examples:
+      | channel         |
+      | Branch Teller   |
+      | Proprietary ATM |
+
+```
+
+*(Note: Unlike Treasury or Cashier's checks, § 229.10(c)(1)(vi) does **not** require the depositor to be the named payee for an On-Us check to qualify for next-day availability.)*
+
+---
+
+### Story 5: The Mandatory "$275 Rule" (First $275 of Non-Next-Day Check Deposits)
+
+**As a** Deposit Operations Compliance Officer,
+
+**I want** the deposit hold engine to aggregate all non-next-day checks deposited on a single banking day and release up to **$275** (the inflation-adjusted statutory amount effective July 1, 2025) on the next business day,
+
+**So that** the bank complies with 12 CFR § 229.10(c)(1)(vii) without over-releasing funds across multiple deposits on the same day.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Mandatory Next-Day Release of First $275 on Check Deposits (12 CFR 229.10(c)(1)(vii))
+
+  Background:
+    Given an established customer account (open > 30 calendar days)
+    And no Reg CC exception holds (12 CFR 229.13) apply to the account or items
+    And the statutory 229.10(c)(1)(vii) threshold is configured to "$275.00"
+
+  Scenario: Single check deposit exceeding $275
+    Given the customer has made "$0.00" in prior check deposits on the current banking day
+    And the customer deposits a local personal check for "$1,000.00" via "Branch Teller"
+    When the deposit hold engine calculates the hold schedule
+    Then "$275.00" shall be made available on the next business day (Day 1)
+    And the remaining "$725.00" shall be placed on a standard 2-business-day hold (Day 2)
+
+  Scenario: Multiple check deposits on the same banking day (Aggregate Cap Enforcement)
+    Given the customer deposited a personal check for "$200.00" at 10:00 AM on Tuesday
+    And the engine already scheduled "$200.00" for next-business-day release (Wednesday)
+    When the customer deposits a second personal check for "$500.00" at 2:00 PM on Tuesday into the same account
+    Then the engine shall calculate the remaining daily 229.10(c)(1)(vii) allowance as "$75.00" ($275.00 - $200.00)
+    And release only "$75.00" from the second check on Wednesday (Next BD)
+    And hold the remaining "$425.00" until Thursday (Second BD)
+
+  Scenario: Deposit consisting of both a 229.10(c)(1) Next-Day check and a standard check
+    Given a customer deposits a "$1,000.00" U.S. Treasury check (eligible under 229.10(c)(1)(i))
+    And in the same transaction deposits a "$600.00" personal check
+    When the deposit hold engine evaluates the combined deposit
+    Then the full "$1,000.00" Treasury check shall be available on the next business day
+    And an additional "$275.00" from the personal check shall ALSO be available on the next business day (Total Day 1 = $1,275.00)
+    And the remaining "$325.00" of the personal check shall be available on the second business day
+
+```
+
+---
+
+### Story 6: Cutoff Time and Non-Business Day Rollover Logic
+
+**As a** Core Banking System Architect,
+
+**I want** the deposit hold engine to evaluate deposit timestamps against channel-specific cutoff times and Federal Reserve holiday calendars,
+
+**So that** deposits made after cutoff or on weekends/holidays are anchored to the correct "banking day" before calculating next-day availability.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Banking Day Determination and Cutoff Time Rollover (12 CFR 229.2(f)-(g))
+
+  Scenario Outline: Deposit received before vs. after channel cutoff time
+    Given the branch teller cutoff time is "17:00" and the proprietary ATM cutoff time is "15:00"
+    And Monday, May 25, 2026 is a Federal Reserve holiday (Memorial Day)
+    When a next-day eligible deposit is received via "<channel>" on "<calendar_date>" at "<time>"
+    Then the effective banking day of deposit shall be recorded as "<effective_banking_day>"
+    And the next-day availability release date shall be "<release_date>"
+
+    Examples:
+      | channel         | calendar_date       | time  | effective_banking_day | release_date        |
+      | Branch Teller   | Friday, May 22      | 16:45 | Friday, May 22        | Tuesday, May 26     |
+      | Branch Teller   | Friday, May 22      | 17:05 | Tuesday, May 26       | Wednesday, May 27   |
+      | Proprietary ATM | Saturday, May 23    | 11:00 | Tuesday, May 26       | Wednesday, May 27   |
+      | Proprietary ATM | Thursday, May 28    | 14:59 | Thursday, May 28      | Friday, May 29      |
+      | Proprietary ATM | Thursday, May 28    | 15:01 | Friday, May 29        | Monday, June 1      |
+
+```
+
+---
+
+### BA Implementation Notes & Edge Cases for Engineering
+
+1. **Parameterized Thresholds:** Ensure the `$275.00` value under 12 CFR § 229.10(c)(1)(vii) (which increased from $225 on July 1, 2025, per Dodd-Frank 5-year inflation adjustments) is stored as a date-effective configuration parameter rather than hardcoded, as the next statutory adjustment is scheduled for July 1, 2030.
+2. **Remote Deposit Capture (RDC) Scope:** Reg CC's mandatory availability schedules technically apply to *paper* checks and electronic payments; however, if your bank contractually extends Reg CC schedules to Mobile RDC in your Deposit Account Agreement, confirm whether RDC routes through a separate channel rule table.
+3. **Precedence of Exception Holds (§ 229.13):** Stories 1–5 assume standard processing. A separate epic should govern § 229.13 overrides (e.g., New Accounts open < 30 days, where the $275 rule does **not** apply and only the first $6,725 of Treasury/Cashier's/Official checks gets next-day availability).

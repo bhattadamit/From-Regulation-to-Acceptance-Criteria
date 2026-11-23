@@ -1,0 +1,969 @@
+# **Regulation E – Consumer Liability for Unauthorized Electronic Fund Transfers**
+
+**Business requirements and user stories for a US bank disputes platform**
+
+Regulatory: 12 CFR § 1005.6
+
+Product: Disputes platform
+
+Business analysis specification
+
+## **1. Business objective**
+
+Implement the consumer liability requirements of Regulation E, 12 CFR § 1005.6, within the bank's disputes platform to ensure that consumer liability for unauthorized electronic fund transfers (EFTs) is determined accurately, consistently, and in accordance with applicable regulatory requirements.
+
+The platform must:
+
+1. Capture when a consumer first becomes aware of an unauthorized transfer or loss/theft of an access device.
+2. Capture when the consumer notifies the bank.
+3. Calculate applicable reporting deadlines.
+4. Determine the appropriate consumer liability threshold.
+5. Identify potentially unlimited liability arising from delayed notification, where legally applicable.
+6. Apply regulatory exceptions and consumer protections.
+7. Maintain an auditable record of the liability determination.
+8. Support downstream dispute processing, provisional credit, adjustments, and customer communications without conflating Regulation E liability with investigation requirements under § 1005.11.
+
+## **2. Regulatory interpretation and business rules**
+
+The following rules provide the foundation for the user stories.
+
+### **2.1 Consumer liability thresholds**
+
+Under 12 CFR § 1005.6(b), consumer liability depends on the circumstances and timing of notification.
+
+**Scenario 1 – Notification within two business days**
+
+# **$50**
+
+Maximum potential consumer liability for unauthorized transfers resulting from an access device being lost or stolen, provided the consumer notifies the financial institution within two business days after learning of the loss or theft.
+
+**Scenario 2 – Notification after two business days but within 60 calendar days**
+
+# **$500**
+
+Maximum potential consumer liability, provided the financial institution establishes that the unauthorized transfers would have been prevented had notification occurred within two business days.
+
+**Scenario 3 – Notification more than 60 calendar days after statement transmission**
+
+# **Potentially unlimited**
+
+The consumer may be liable for unauthorized transfers occurring after the 60-day period and before notification, if the financial institution establishes that those transfers would have been prevented by timely notification.
+
+**Important distinctions:**
+
+- The $50 and $500 limits are maximum potential liability, not automatic charges to the consumer.
+- The 60-day period is measured from transmission of the periodic statement reflecting the unauthorized EFT, not necessarily from the transaction date.
+- Liability for transfers occurring after the 60-day period is limited to those occurring after that period and before notification, subject to the bank's burden of proof.
+- A consumer generally has no liability for unauthorized transfers occurring after notification.
+- Additional statutory exceptions may eliminate or limit liability.
+
+### **2.2 Regulatory business rules**
+
+| Rule ID | Business rule                                                                                                                                                                                                                          |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| REG-001 | If the consumer notifies the bank within two business days after learning of the loss or theft of an access device, maximum potential liability is $50.                                                                                |
+| REG-002 | If notification occurs after two business days, the maximum potential liability may be $500, subject to the bank establishing preventability.                                                                                          |
+| REG-003 | If notification occurs more than 60 calendar days after transmission of the statement reflecting the unauthorized EFT, liability may extend to subsequent unauthorized transfers before notification, subject to statutory conditions. |
+| REG-004 | The bank must establish that the consumer's failure to notify within the applicable period resulted in additional preventable unauthorized transfers before imposing the applicable extended liability.                                |
+| REG-005 | No liability applies to unauthorized transfers occurring after the bank has been notified of the loss or theft of the access device.                                                                                                   |
+| REG-006 | No liability applies where the access device was not accepted, or where circumstances beyond the consumer's control prevented timely notification and notification was made as soon as reasonably possible.                            |
+| REG-007 | The platform must distinguish between loss/theft reporting and the 60-day periodic statement notification requirement.                                                                                                                 |
+| REG-008 | Consumer liability must not exceed the applicable statutory limits.                                                                                                                                                                    |
+| REG-009 | Liability must be evaluated against the relevant unauthorized transfers, not simply assigned as a flat amount to the entire dispute.                                                                                                   |
+
+*Implementation note:* The legal and compliance teams should validate the treatment of access-device versus non-access-device transactions, the precise applicability of each liability tier, and any institution-specific consumer protections before production deployment.
+
+## **3. Functional user stories and Gherkin acceptance criteria**
+
+The stories below are organized by functional capability and can be translated into Jira epics and stories.
+
+### **Epic 1 – Capture notification and transaction information**
+
+#### **US-001: Capture consumer notification date and time**
+
+**As a** disputes analyst,\
+**I want** the platform to capture the date and time the consumer first notified the bank of a lost or stolen access device or unauthorized EFT,\
+**So that** the platform can determine the applicable Regulation E liability period.
+
+**Acceptance criteria**
+
+```
+Feature: Capture consumer notification
+
+  Scenario: Consumer reports a lost or stolen access device
+    Given a consumer contacts the bank to report a lost or stolen access device
+    When the disputes analyst creates a case
+    Then the platform must capture the date and time of notification
+    And capture the notification channel
+    And capture the date and time the consumer learned of the loss or theft
+    And retain the original notification timestamp
+    And associate the notification with the affected account and access device
+
+  Scenario: Consumer reports an unauthorized EFT
+    Given a consumer reports an unauthorized electronic fund transfer
+    When the disputes analyst creates a dispute
+    Then the platform must capture the date and time of notification
+    And associate the notification with the disputed transaction
+    And identify whether the access device was lost, stolen, or otherwise compromised
+
+  Scenario: Notification date is earlier than case creation
+    Given the consumer previously notified the bank through another channel
+    When the disputes analyst creates a dispute
+    Then the platform must use the original notification date
+    And must not automatically substitute the case creation date
+```
+
+**Key data attributes**
+
+- Original notification date/time
+- Notification channel (telephone, branch, online, written, other)
+- Consumer awareness date/time
+- Access device status
+- Account identifier
+- Dispute reference
+- Date/time of case creation
+
+#### **US-002: Capture periodic statement information**
+
+**As a** disputes analyst,\
+**I want** the platform to identify the periodic statement transmission date associated with an unauthorized EFT,\
+**So that** the 60-calendar-day reporting requirement can be evaluated correctly.
+
+**Acceptance criteria**
+
+```
+Feature: Capture periodic statement information
+
+  Scenario: Unauthorized EFT appears on a periodic statement
+    Given an unauthorized EFT has been identified
+    When the platform retrieves the associated periodic statement
+    Then it must capture the statement transmission date
+    And associate the statement with the disputed transaction
+    And calculate the applicable 60-calendar-day notification deadline
+
+  Scenario: Multiple transactions appear on different statements
+    Given a dispute contains multiple unauthorized EFTs
+    And the EFTs appear on different periodic statements
+    When the platform evaluates consumer liability
+    Then it must evaluate the applicable statement transmission date
+    And the corresponding 60-day deadline for each relevant EFT
+
+  Scenario: Statement transmission date is unavailable
+    Given an unauthorized EFT has been identified
+    And the statement transmission date is unavailable
+    When the platform evaluates consumer liability
+    Then it must flag the liability determination for manual review
+    And must not assume the transaction date is the statement transmission date
+```
+
+#### **US-003: Capture unauthorized transaction details**
+
+**As a** disputes analyst,\
+**I want** the platform to capture all unauthorized EFTs associated with a consumer dispute,\
+**So that** consumer liability can be calculated using the correct transactions and dates.
+
+**Acceptance criteria**
+
+```
+Feature: Capture unauthorized EFT details
+
+  Scenario: Multiple unauthorized transfers are reported
+    Given a consumer reports multiple unauthorized EFTs
+    When the transactions are added to the dispute
+    Then the platform must capture each transaction separately
+    And record its transaction date
+    And record its transaction amount
+    And record its posting date
+    And record its transaction classification
+    And associate it with the relevant access device or account
+
+  Scenario: Transaction occurs after consumer notification
+    Given a consumer has already notified the bank of a lost or stolen access device
+    When an additional unauthorized EFT occurs
+    Then the platform must identify the transaction as occurring after notification
+    And assign zero consumer liability to that transaction under the applicable Regulation E liability rule
+
+  Scenario: Transaction classification is not eligible for Regulation E
+    Given a transaction is submitted for dispute
+    When the transaction is identified as outside the scope of an electronic fund transfer covered by Regulation E
+    Then the platform must not automatically apply the Regulation E liability calculation
+    And route the case to the appropriate dispute process
+```
+
+### **Epic 2 – Determine notification timeliness**
+
+#### **US-004: Calculate the two-business-day reporting period**
+
+**As a** disputes analyst,\
+**I want** the platform to calculate whether notification occurred within two business days after the consumer learned of the loss or theft,\
+**So that** the applicable $50 liability threshold can be evaluated.
+
+**Acceptance criteria**
+
+```
+Feature: Calculate two-business-day notification period
+
+  Scenario: Consumer reports within two business days
+    Given the consumer learned of the loss or theft of an access device
+    And the consumer notified the bank within two business days
+    When the platform evaluates liability
+    Then the platform must classify notification as timely
+    And identify the applicable maximum liability threshold as $50
+
+  Scenario: Consumer reports after two business days
+    Given the consumer learned of the loss or theft of an access device
+    And notification occurred more than two business days later
+    When the platform evaluates liability
+    Then the platform must classify notification as delayed
+    And identify the potential applicability of the $500 liability tier
+    And require evaluation of additional preventable unauthorized transfers
+
+  Scenario: Notification occurs on a weekend or bank holiday
+    Given the consumer learns of the loss or theft before a weekend or bank holiday
+    When the platform calculates the two-business-day reporting period
+    Then it must exclude Saturdays, Sundays, and applicable legal public holidays
+    And use the configured Regulation E business-day calendar
+
+  Scenario: Consumer notification predates the dispute case
+    Given the consumer previously notified the bank
+    When a dispute is subsequently created
+    Then the original notification timestamp must be used
+    And the reporting period must not be recalculated from the case creation date
+```
+
+**Business rule:** The business-day calendar must be centrally configurable and aligned with the Regulation E definition of business day and the bank's applicable business-day determination. Do not substitute a calendar-day calculation.
+
+#### **US-005: Calculate the 60-calendar-day reporting period**
+
+**As a** disputes analyst,\
+**I want** the platform to calculate whether the consumer notified the bank within 60 calendar days after transmission of the statement reflecting the unauthorized EFT,\
+**So that** the platform can determine whether extended liability may apply.
+
+**Acceptance criteria**
+
+```
+Feature: Calculate 60-calendar-day notification period
+
+  Scenario: Consumer reports within 60 calendar days
+    Given an unauthorized EFT appears on a periodic statement
+    And the consumer notifies the bank within 60 calendar days after statement transmission
+    When the platform evaluates liability
+    Then the platform must classify the notification as within the 60-day period
+    And must not apply extended liability under the 60-day reporting provision
+
+  Scenario: Consumer reports after 60 calendar days
+    Given an unauthorized EFT appears on a periodic statement
+    And the consumer notifies the bank more than 60 calendar days after statement transmission
+    When the platform evaluates liability
+    Then the platform must classify the notification as outside the 60-day period
+    And identify potential extended liability
+    And identify unauthorized EFTs occurring after the 60-day period and before notification
+
+  Scenario: Consumer reports on the 60th calendar day
+    Given the statement transmission date is known
+    When the consumer notifies the bank on the 60th calendar day
+    Then the platform must classify notification as within the 60-day period
+
+  Scenario: Different statements have different transmission dates
+    Given multiple unauthorized EFTs appear on different periodic statements
+    When the platform evaluates the dispute
+    Then it must calculate the 60-day deadline separately for each relevant statement
+    And must not apply a single statement deadline indiscriminately to all transactions
+```
+
+### **Epic 3 – Calculate consumer liability**
+
+#### **US-006: Apply the $50 consumer liability threshold**
+
+**As a** disputes analyst,\
+**I want** the platform to apply the $50 maximum liability threshold when the consumer provides timely notification,\
+**So that** the bank does not assess liability exceeding the statutory limit.
+
+**Acceptance criteria**
+
+```
+Feature: Apply $50 liability threshold
+
+  Scenario: Unauthorized transfers total more than $50
+    Given the consumer notifies the bank within two business days of learning of the loss or theft
+    And unauthorized transfers occurred before notification
+    And the total value of those transfers exceeds $50
+    When the platform calculates consumer liability
+    Then maximum potential consumer liability must not exceed $50
+
+  Scenario: Unauthorized transfers total less than $50
+    Given the consumer notifies the bank within two business days
+    And the total value of eligible unauthorized transfers is $30
+    When the platform calculates consumer liability
+    Then maximum potential consumer liability must not exceed $30
+
+  Scenario: No unauthorized transfers occur before notification
+    Given the consumer notifies the bank before any unauthorized transfer occurs
+    When the platform calculates consumer liability
+    Then consumer liability must equal $0
+
+  Scenario: Unauthorized transfers occur after notification
+    Given the consumer has notified the bank of the loss or theft
+    And additional unauthorized transfers occur after notification
+    When the platform calculates consumer liability
+    Then those subsequent transfers must not be included in consumer liability
+```
+
+#### **US-007: Apply the $500 consumer liability threshold**
+
+**As a** disputes analyst,\
+**I want** the platform to evaluate the $500 liability threshold when the consumer fails to report a lost or stolen access device within two business days,\
+**So that** any additional liability is assessed in accordance with Regulation E.
+
+**Acceptance criteria**
+
+```
+Feature: Apply $500 liability threshold
+
+  Scenario: Consumer reports after two business days
+    Given the consumer did not notify the bank within two business days
+    And unauthorized EFTs occurred during the applicable delayed reporting period
+    When the platform evaluates consumer liability
+    Then it must identify the potentially applicable $500 liability limit
+    And calculate the value of eligible unauthorized transfers
+    And require the bank to establish that timely notification would have prevented those transfers
+
+  Scenario: Bank establishes preventability
+    Given notification occurred after two business days
+    And the bank establishes that the unauthorized transfers would have been prevented by timely notification
+    When the platform calculates liability
+    Then consumer liability must not exceed the lesser of $500 or the value of eligible unauthorized transfers
+
+  Scenario: Bank cannot establish preventability
+    Given notification occurred after two business days
+    And the bank cannot establish that the unauthorized transfers would have been prevented by timely notification
+    When the platform calculates liability
+    Then the platform must not impose extended liability based solely on delayed notification
+
+  Scenario: Eligible unauthorized transfers total less than $500
+    Given the bank establishes preventability
+    And eligible unauthorized transfers total $300
+    When the platform calculates liability
+    Then maximum potential consumer liability must not exceed $300
+```
+
+**Important implementation distinction:** The $500 tier is not a blanket $500 deductible. The calculation must reflect the statutory lesser-of limitation and the qualifying unauthorized transfers during the applicable period.
+
+#### **US-008: Apply extended liability after the 60-day period**
+
+**As a** disputes analyst,\
+**I want** the platform to identify unauthorized transfers occurring after the 60-day notification period and before consumer notification,\
+**So that** potentially extended consumer liability is calculated in accordance with § 1005.6(b)(3).
+
+**Acceptance criteria**
+
+```
+Feature: Apply extended liability after 60 days
+
+  Scenario: Unauthorized transfers occur after the 60-day deadline
+    Given the consumer did not notify the bank within 60 calendar days after statement transmission
+    And additional unauthorized transfers occurred after the 60-day deadline
+    And those transfers occurred before consumer notification
+    When the platform evaluates liability
+    Then it must identify those transfers as potentially subject to extended liability
+    And calculate their aggregate value separately
+
+  Scenario: Bank establishes that additional transfers were preventable
+    Given unauthorized transfers occurred after the 60-day deadline
+    And the bank establishes that timely notification would have prevented those transfers
+    When the platform calculates consumer liability
+    Then the platform may assign liability for those qualifying transfers
+    And must exclude transfers occurring after notification
+
+  Scenario: Bank cannot establish preventability
+    Given the consumer notified the bank after the 60-day period
+    And the bank cannot establish that additional transfers would have been prevented
+    When the platform evaluates liability
+    Then it must not automatically assign extended liability
+
+  Scenario: No additional transfers occurred after the 60-day deadline
+    Given the consumer notified the bank after the 60-day period
+    And no unauthorized transfers occurred after the deadline and before notification
+    When the platform calculates liability
+    Then extended liability for subsequent transfers must equal $0
+
+  Scenario: Transfers occur after notification
+    Given the consumer notified the bank
+    And additional unauthorized transfers occur after notification
+    When the platform calculates liability
+    Then those transfers must be excluded from consumer liability
+```
+
+**Business rule:** The platform must distinguish between the initial liability calculation and additional liability arising from unauthorized transfers after the 60-day period. It must not treat the entire disputed amount as automatically subject to unlimited liability.
+
+### **Epic 4 – Apply regulatory exceptions and consumer protections**
+
+#### **US-009: Apply circumstances beyond the consumer's control**
+
+**As a** disputes analyst,\
+**I want** the platform to identify circumstances that prevented the consumer from notifying the bank within the required timeframe,\
+**So that** consumers are not improperly held liable for delays beyond their control.
+
+**Acceptance criteria**
+
+```
+Feature: Apply circumstances beyond consumer control
+
+  Scenario: Consumer was unable to notify the bank due to circumstances beyond their control
+    Given the consumer did not notify the bank within the applicable reporting period
+    And the consumer provides information indicating circumstances beyond their control
+    When the disputes analyst evaluates the case
+    Then the platform must allow the analyst to record the circumstances
+    And capture supporting documentation
+    And flag the liability determination for review
+
+  Scenario: Consumer notifies the bank as soon as reasonably possible
+    Given the consumer experienced circumstances beyond their control
+    And notification was delayed as a result
+    When the consumer notifies the bank as soon as reasonably possible
+    Then the platform must support an exception to the standard liability timeframe
+    And must not automatically impose delayed-notification liability
+
+  Scenario: Exception is approved
+    Given the analyst has documented circumstances beyond the consumer's control
+    And the exception is approved by an authorized reviewer
+    When the liability calculation is completed
+    Then the platform must apply the approved regulatory exception
+    And record the exception rationale
+    And preserve the original notification dates
+```
+
+Examples of circumstances for consideration include hospitalization, extended travel where notification was not reasonably possible, or other circumstances beyond the consumer's control. These are examples for case assessment, not automatic qualifying exceptions.
+
+#### **US-010: Handle unauthorized transfers involving an unaccepted access device**
+
+**As a** disputes analyst,\
+**I want** the platform to identify whether an access device was accepted by the consumer,\
+**So that** the bank does not improperly assess consumer liability where the statutory protection applies.
+
+**Acceptance criteria**
+
+```
+Feature: Access device acceptance
+
+  Scenario: Access device was not accepted by the consumer
+    Given an unauthorized EFT is reported
+    And the access device was not accepted by the consumer
+    When the platform evaluates consumer liability
+    Then the platform must identify the statutory no-liability condition
+    And prevent automatic assignment of consumer liability under the access-device liability rules
+
+  Scenario: Access device acceptance is unknown
+    Given an unauthorized EFT is reported
+    And access device acceptance information is unavailable
+    When the platform evaluates consumer liability
+    Then the platform must flag the case for manual review
+    And must not assume that the access device was accepted
+```
+
+#### **US-011: Prevent liability for transactions occurring after notification**
+
+**As a** disputes analyst,\
+**I want** the platform to exclude unauthorized EFTs occurring after the consumer's notification,\
+**So that** the consumer is not held liable for transactions that occur after the bank has received notice.
+
+**Acceptance criteria**
+
+```
+Feature: Exclude post-notification transfers
+
+  Scenario: Unauthorized transfer occurs after notification
+    Given the consumer has notified the bank of the loss or theft of an access device
+    When an unauthorized EFT occurs after notification
+    Then the platform must classify the transfer as post-notification
+    And assign zero consumer liability under Regulation E
+
+  Scenario: Multiple unauthorized transfers occur before and after notification
+    Given the consumer reports multiple unauthorized EFTs
+    And some transactions occurred before notification
+    And other transactions occurred after notification
+    When the platform calculates consumer liability
+    Then it must evaluate pre-notification transfers separately
+    And exclude post-notification transfers from consumer liability
+
+  Scenario: Notification is received through a different bank channel
+    Given the consumer notified the bank through an authorized notification channel
+    When a dispute is subsequently created through another channel
+    Then the original notification timestamp must be used
+    And the platform must exclude qualifying post-notification transfers
+```
+
+### **Epic 5 – Support bank evidence and preventability determinations**
+
+#### **US-012: Capture evidence supporting preventability**
+
+**As a** disputes analyst,\
+**I want** the platform to capture evidence demonstrating whether timely notification would have prevented subsequent unauthorized transfers,\
+**So that** the bank can substantiate liability assessments under Regulation E.
+
+**Acceptance criteria**
+
+```
+Feature: Capture preventability evidence
+
+  Scenario: Evidence supports preventability
+    Given the consumer failed to provide timely notification
+    When the analyst reviews the unauthorized transactions
+    Then the platform must allow evidence to be attached
+    And capture the analyst's preventability determination
+    And capture the rationale supporting the determination
+    And identify the transactions affected by the determination
+
+  Scenario: Evidence does not support preventability
+    Given the consumer failed to provide timely notification
+    And available evidence does not establish preventability
+    When the analyst completes the review
+    Then the platform must record that preventability was not established
+    And prevent extended liability from being automatically assigned
+
+  Scenario: Evidence is incomplete
+    Given the bank has insufficient evidence to establish preventability
+    When the analyst attempts to finalize the liability determination
+    Then the platform must flag the determination as requiring additional review
+    And prevent an unsupported liability assessment
+```
+
+**Examples of evidence fields:**
+
+- Date the bank could have blocked or restricted the access device.
+- Date the bank received notification.
+- Date each unauthorized EFT occurred.
+- Whether the access device remained active.
+- Whether a block or restriction would have prevented the transaction.
+- Relevant system logs and investigation findings.
+- Analyst determination and rationale.
+
+#### **US-013: Require approval for extended liability**
+
+**As a** disputes supervisor,\
+**I want** extended liability assessments to require an authorized review,\
+**So that** decisions involving increased consumer liability are supported by documented evidence.
+
+**Acceptance criteria**
+
+```
+Feature: Approve extended consumer liability
+
+  Scenario: Extended liability requires approval
+    Given the consumer failed to notify the bank within the applicable timeframe
+    And the proposed liability exceeds the standard applicable threshold
+    When the analyst submits the liability determination
+    Then the platform must route the determination to an authorized reviewer
+    And prevent finalization until the required approval is obtained
+
+  Scenario: Reviewer approves the liability determination
+    Given an extended liability assessment is pending approval
+    When the authorized reviewer approves the assessment
+    Then the platform must record the reviewer identifier
+    And record the approval date and time
+    And retain the supporting evidence
+    And allow the case to proceed
+
+  Scenario: Reviewer rejects the liability determination
+    Given an extended liability assessment is pending approval
+    When the reviewer rejects the assessment
+    Then the platform must require a rejection reason
+    And return the case for reassessment
+    And prevent the rejected liability amount from being applied
+```
+
+### **Epic 6 – Calculate and communicate the final liability amount**
+
+#### **US-014: Calculate total consumer liability**
+
+**As a** disputes analyst,\
+**I want** the platform to calculate the consumer's maximum potential liability based on the applicable Regulation E provisions,\
+**So that** the bank can apply a consistent and defensible liability determination.
+
+**Acceptance criteria**
+
+```
+Feature: Calculate Regulation E consumer liability
+
+  Scenario: Timely notification
+    Given the applicable notification requirements are satisfied
+    And eligible unauthorized transfers total $1,000
+    When the platform calculates consumer liability
+    Then the maximum potential consumer liability must be $50
+
+  Scenario: Delayed notification within the 60-day reporting period
+    Given notification occurred more than two business days after learning of the loss or theft
+    And eligible unauthorized transfers occurred during the applicable delayed reporting period
+    And the bank establishes preventability
+    When the platform calculates consumer liability
+    Then the maximum potential liability must not exceed the lesser of $500 or the eligible transfer amount
+
+  Scenario: Extended liability after the 60-day reporting period
+    Given notification occurred more than 60 calendar days after statement transmission
+    And qualifying unauthorized transfers occurred after the 60-day deadline
+    And the bank establishes preventability
+    When the platform calculates consumer liability
+    Then the platform must calculate potential liability for the qualifying subsequent transfers
+    And exclude transfers occurring after notification
+
+  Scenario: No qualifying liability
+    Given an applicable statutory exception eliminates consumer liability
+    When the platform calculates consumer liability
+    Then consumer liability must equal $0
+
+  Scenario: Liability cannot be established
+    Given the bank cannot establish the statutory conditions for increased liability
+    When the platform calculates consumer liability
+    Then the platform must not impose the increased liability amount
+    And record the reason for the determination
+```
+
+#### **US-015: Display the liability determination and calculation breakdown**
+
+**As a** disputes analyst,\
+**I want** the platform to display a detailed breakdown of the liability calculation,\
+**So that** I can explain how the consumer liability amount was determined.
+
+**Acceptance criteria**
+
+```
+Feature: Display liability calculation
+
+  Scenario: Liability calculation is completed
+    Given the platform has evaluated the relevant regulatory requirements
+    When the liability determination is generated
+    Then the platform must display:
+      | Field |
+      | Applicable liability provision |
+      | Consumer awareness date |
+      | Original notification date |
+      | Two-business-day deadline |
+      | Statement transmission date |
+      | 60-calendar-day deadline |
+      | Applicable unauthorized transactions |
+      | Preventability determination |
+      | Applicable statutory limit |
+      | Calculated consumer liability |
+      | Outstanding review requirements |
+
+  Scenario: Analyst reviews liability calculation
+    Given a liability calculation has been generated
+    When the analyst opens the liability details
+    Then the platform must display the calculation inputs
+    And show how the liability amount was derived
+    And identify any exceptions or overrides
+
+  Scenario: Liability amount changes
+    Given a liability calculation has already been completed
+    When an authorized user changes an underlying input
+    Then the platform must recalculate the liability
+    And retain the previous calculation
+    And record the reason for the change
+```
+
+#### **US-016: Integrate the liability determination with dispute outcomes**
+
+**As a** disputes analyst,\
+**I want** the final Regulation E liability amount to be available to downstream dispute processing,\
+**So that** account adjustments and dispute outcomes reflect the approved liability determination.
+
+**Acceptance criteria**
+
+```
+Feature: Integrate liability with dispute processing
+
+  Scenario: Liability determination is approved
+    Given a Regulation E liability determination has been approved
+    When the dispute is ready for financial processing
+    Then the platform must transmit the approved liability amount
+    And transmit the associated dispute reference
+    And transmit the applicable determination reason code
+
+  Scenario: Liability determination is pending review
+    Given the liability determination requires supervisor approval
+    When the dispute attempts to proceed to final financial processing
+    Then the platform must prevent application of an unapproved liability amount
+
+  Scenario: Liability determination is changed
+    Given a previously approved liability determination exists
+    When an authorized user changes the determination
+    Then the platform must transmit the revised liability amount
+    And identify the superseded determination
+    And retain an auditable history of both determinations
+```
+
+**Important:** Regulation E liability and the bank's investigation/provisional-credit obligations are separate decision processes. The platform must not delay a required investigation or provisional credit solely because the liability determination is pending approval. Those workflows must comply independently with § 1005.11.
+
+### **Epic 7 – Audit, reporting, and configuration**
+
+#### **US-017: Maintain an auditable liability decision history**
+
+**As a** compliance officer,\
+**I want** the platform to retain a complete audit trail of every Regulation E liability determination,\
+**So that** the bank can demonstrate compliance during regulatory examinations and internal audits.
+
+**Acceptance criteria**
+
+```
+Feature: Audit Regulation E liability decisions
+
+  Scenario: Liability determination is generated
+    Given the platform calculates consumer liability
+    When the determination is saved
+    Then the platform must record the calculation date and time
+    And the applicable regulatory rule
+    And the calculation inputs
+    And the calculated liability amount
+    And the user or system responsible for the determination
+
+  Scenario: Liability determination is overridden
+    Given an authorized user overrides the calculated liability
+    When the override is submitted
+    Then the platform must capture the original amount
+    And the revised amount
+    And the override reason
+    And the user identifier
+    And the approval information where required
+
+  Scenario: Case is reviewed by an auditor
+    Given an auditor accesses a completed dispute
+    When the auditor reviews the liability determination
+    Then the auditor must be able to view the calculation history
+    And supporting evidence
+    And notification timestamps
+    And approval records
+    And all manual overrides
+```
+
+#### **US-018: Configure regulatory calendars and thresholds**
+
+**As a** product administrator,\
+**I want** Regulation E deadlines and configurable parameters to be centrally managed,\
+**So that** changes to business calendars and approved regulatory interpretations can be implemented consistently.
+
+**Acceptance criteria**
+
+```
+Feature: Configure Regulation E parameters
+
+  Scenario: Business-day calendar is updated
+    Given the bank updates its applicable business-day calendar
+    When the new calendar becomes effective
+    Then new liability calculations must use the updated calendar
+    And previously completed calculations must retain their original inputs
+
+  Scenario: Regulatory threshold changes
+    Given an authorized administrator updates an approved regulatory parameter
+    When the new parameter becomes effective
+    Then calculations for applicable new cases must use the effective parameter
+    And existing determinations must retain their original calculation version
+
+  Scenario: Unauthorized configuration change
+    Given a user does not have regulatory configuration permissions
+    When the user attempts to change a liability parameter
+    Then the platform must reject the change
+    And record the unsuccessful access attempt
+```
+
+#### **US-019: Generate Regulation E liability reporting**
+
+**As a** compliance officer,\
+**I want** reports showing consumer liability determinations and exceptions,\
+**So that** the bank can monitor trends and identify potential compliance issues.
+
+**Acceptance criteria**
+
+```
+Feature: Regulation E liability reporting
+
+  Scenario: Generate liability summary report
+    Given disputes have been processed during a reporting period
+    When the compliance officer generates a Regulation E report
+    Then the report must include:
+      | Reporting attribute |
+      | Total Regulation E disputes |
+      | Timely notifications |
+      | Notifications after two business days |
+      | Notifications after 60 calendar days |
+      | $50 liability tier cases |
+      | $500 liability tier cases |
+      | Extended liability cases |
+      | Zero-liability cases |
+      | Manual overrides |
+      | Approved exceptions |
+      | Pending supervisory reviews |
+
+  Scenario: Identify extended liability assessments
+    Given disputes have been assigned extended liability
+    When the compliance officer runs the extended liability report
+    Then the platform must identify the affected accounts
+    And disputed transaction amounts
+    And liability amounts
+    And preventability evidence status
+    And approval status
+
+  Scenario: Reconcile liability determinations
+    Given financial processing has been completed
+    When the compliance officer generates a reconciliation report
+    Then the report must compare approved liability amounts with amounts applied to consumer accounts
+    And identify discrepancies
+```
+
+## **4. Consolidated liability decision matrix**
+
+The following matrix should be used as the core decision logic for the platform.
+
+| Condition                                                                     | Potential consumer liability                                                                                                                                     |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No unauthorized EFT before notification                                       | $0                                                                                                                                                               |
+| Notification within two business days of learning of loss/theft               | Lesser of $50 or qualifying unauthorized transfers before notification                                                                                           |
+| Notification after two business days, but within the applicable 60-day period | Lesser of $500 or qualifying unauthorized transfers during the statutory delayed-notification window, if preventability is established                           |
+| Notification after 60 calendar days from statement transmission               | Potential additional liability for qualifying unauthorized transfers occurring after the 60-day period and before notification, if preventability is established |
+| Unauthorized EFT after notification                                           | $0                                                                                                                                                               |
+| Qualifying circumstances beyond consumer control                              | Apply statutory exception                                                                                                                                        |
+| Access device not accepted                                                    | Apply statutory no-liability protection                                                                                                                          |
+
+**Critical calculation distinction**
+
+The platform should implement the following as separate components rather than one simple liability cap:
+
+1. Initial liability under § 1005.6(b)(1): Lesser of $50 or qualifying unauthorized transfers before notification.
+2. Additional liability under § 1005.6(b)(2): Lesser of $500 or qualifying unauthorized transfers occurring during the statutory period beginning two business days after the consumer learns of the loss/theft and ending before notification, where the institution establishes preventability.
+3. Additional liability under § 1005.6(b)(3): Qualifying unauthorized transfers occurring after expiration of the 60-day period and before notification, where the institution establishes preventability.
+
+This distinction is important because the $500 provision is not a replacement flat cap on all disputed transactions, and the post-60-day provision can create additional liability beyond the initial statutory amount.
+
+## **5. Non-functional requirements**
+
+In addition to the user stories, I recommend the following platform requirements.
+
+| ID      | Requirement                                                                                                            | Priority    |
+| ------- | ---------------------------------------------------------------------------------------------------------------------- | ----------- |
+| NFR-001 | All deadline calculations must support business days and calendar days independently.                                  | Must have   |
+| NFR-002 | All timestamps must be stored consistently, with appropriate timezone handling.                                        | Must have   |
+| NFR-003 | The platform must retain historical calculation inputs and outputs.                                                    | Must have   |
+| NFR-004 | Regulatory parameters must be version-controlled and effective-dated.                                                  | Must have   |
+| NFR-005 | Liability overrides must be permission-controlled and auditable.                                                       | Must have   |
+| NFR-006 | Liability calculations must be reproducible using the original input data and rule version.                            | Must have   |
+| NFR-007 | Missing or inconsistent data must trigger an exception rather than an unsupported liability determination.             | Must have   |
+| NFR-008 | The liability engine must support multiple unauthorized transactions within one dispute.                               | Must have   |
+| NFR-009 | The platform must maintain separation between liability determination and investigation/provisional-credit processing. | Must have   |
+| NFR-010 | Reports must support filtering by date range, liability tier, channel, product, and determination status.              | Should have |
+
+## **6. Recommended data model**
+
+I would recommend creating a dedicated Regulation E liability assessment object associated with the dispute case.
+
+| Data entity             | Key attributes                                                          |
+| ----------------------- | ----------------------------------------------------------------------- |
+| Dispute                 | Dispute ID, account ID, case status, dispute creation date              |
+| Consumer notification   | Notification ID, notification date/time, channel, awareness date/time   |
+| Access device           | Device ID, acceptance status, lost/stolen status, block date/time       |
+| Unauthorized EFT        | Transaction ID, transaction date, posting date, amount, statement ID    |
+| Periodic statement      | Statement ID, transmission date, associated transactions                |
+| Liability assessment    | Assessment ID, applicable provision, liability tier, calculation amount |
+| Preventability evidence | Evidence ID, affected transaction, evidence type, determination         |
+| Regulatory exception    | Exception type, rationale, supporting documentation, approval           |
+| Approval                | Reviewer ID, approval status, decision date/time                        |
+| Audit history           | Previous value, revised value, user ID, change timestamp, reason        |
+
+## **7. Suggested end-to-end process flow**
+
+**1. Consumer reports unauthorized EFT**
+
+Capture notification, awareness and transaction details
+
+**2. Validate Regulation E applicability**
+
+Determine covered EFT, access-device status and applicable protections
+
+**3. Calculate notification deadlines**
+
+Two-business-day period and 60-calendar-day period
+
+**4. Determine liability tier**
+
+Initial $50 liability, additional $500 liability, or extended liability
+
+**5. Evaluate preventability and exceptions**
+
+Validate evidence and statutory conditions
+
+**6. Calculate final consumer liability**
+
+Apply transaction-level calculations and applicable statutory limitations
+
+**7. Approve and record determination**
+
+Audit history, downstream processing and reporting
+
+## **8. Key UAT scenarios**
+
+I would make the following scenarios mandatory for business acceptance testing.
+
+| Test    | Scenario                                               | Expected result                                                               |
+| ------- | ------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| UAT-001 | Consumer reports within two business days              | Maximum $50 liability, subject to qualifying transaction amount               |
+| UAT-002 | Consumer reports after two business days               | Evaluate additional liability and preventability                              |
+| UAT-003 | Consumer reports exactly on the second business day    | Timely notification                                                           |
+| UAT-004 | Consumer reports on the 60th calendar day              | Within 60-day period                                                          |
+| UAT-005 | Consumer reports after the 60-day period               | Evaluate additional liability under § 1005.6(b)(3)                            |
+| UAT-006 | Multiple unauthorized EFTs across different statements | Calculate deadlines individually                                              |
+| UAT-007 | Transactions occur after notification                  | Zero consumer liability for those transactions                                |
+| UAT-008 | Bank cannot establish preventability                   | Do not impose increased liability                                             |
+| UAT-009 | Consumer provides qualifying exceptional circumstances | Apply appropriate statutory protection                                        |
+| UAT-010 | Access device was not accepted                         | Apply statutory no-liability protection                                       |
+| UAT-011 | Statement transmission date is missing                 | Manual review                                                                 |
+| UAT-012 | Analyst overrides calculated liability                 | Require authorization and audit trail                                         |
+| UAT-013 | Consumer reports through telephone, then files online  | Use original telephone notification date                                      |
+| UAT-014 | Multiple access devices are involved                   | Evaluate the applicable notification and transaction circumstances separately |
+| UAT-015 | Regulatory configuration changes                       | Preserve historical calculation results                                       |
+
+## **9. Dependencies and implementation considerations**
+
+Before development begins, I would establish the following dependencies with the relevant stakeholders:
+
+| Stakeholder        | Required decision/input                                                         |
+| ------------------ | ------------------------------------------------------------------------------- |
+| Legal              | Validate statutory interpretation and liability calculation methodology         |
+| Compliance         | Approve business rules, exceptions and evidence standards                       |
+| Deposit Operations | Define notification handling and access-device blocking procedures              |
+| Fraud Operations   | Define preventability evidence and transaction classification                   |
+| Technology         | Confirm statement data, timestamps, transaction feeds and business-day calendar |
+| Finance            | Confirm downstream liability posting and reconciliation                         |
+| Quality Assurance  | Approve regulatory scenario coverage and expected outcomes                      |
+
+## **10. Regulatory references**
+
+The primary source documents for requirements traceability are:
+
+1. [12 CFR § 1005.6 – Liability of consumer for unauthorized transfers](https://www.ecfr.gov/current/title-12/chapter-X/part-1005/section-1005.6?utm_source=chatgpt.com).
+2. [12 CFR § 1005.2 – Definitions](https://www.ecfr.gov/current/title-12/chapter-X/part-1005/section-1005.2?utm_source=chatgpt.com) (including business day and electronic fund transfer).
+3. [12 CFR § 1005.11 – Procedures for resolving errors](https://www.ecfr.gov/current/title-12/chapter-X/part-1005/section-1005.11?utm_source=chatgpt.com).
+
+## **11. Senior business analyst recommendation**
+
+I recommend structuring the implementation into four development capabilities rather than embedding all the logic directly into the disputes workflow.
+
+| Capability                      | Responsibility                                                          |
+| ------------------------------- | ----------------------------------------------------------------------- |
+| Notification & deadline engine  | Calculate two-business-day and 60-calendar-day deadlines                |
+| Regulation E liability engine   | Apply statutory thresholds and transaction-level liability calculations |
+| Evidence & exception management | Capture preventability, exceptions and approvals                        |
+| Audit & downstream integration  | Preserve decisions and communicate approved amounts to other systems    |
+
+Recommended design
+
+**Build the Regulation E liability calculation as a centralized, reusable rules engine.**
+
+This is preferable to hardcoding liability rules into individual dispute types. It provides consistent treatment across debit cards, ATM transactions, ACH transactions and other covered EFTs, while allowing transaction-specific applicability rules.
+
+One particularly important design decision: the platform should maintain three separate amounts:
+
+- Total unauthorized transaction amount.
+- Total potentially consumer-liable amount under Regulation E.
+- Final approved consumer liability amount.
+
+These amounts should never be treated as interchangeable.
+
+This specification is a proposed business requirements baseline, not a legal opinion. Before implementation, Legal and Compliance should validate the precise application of § 1005.6(b)(1)–(3), especially transaction-level windows, access-device applicability, and the institution's burden of establishing preventability.

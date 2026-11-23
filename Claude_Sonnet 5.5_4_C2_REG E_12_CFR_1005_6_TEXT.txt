@@ -1,0 +1,332 @@
+# Regulation E Consumer Liability for Unauthorized Transfers (12 CFR 1005.6): User Stories and Acceptance Criteria
+
+**Scope:** The disputes platform determines the maximum consumer liability for an unauthorized electronic fund transfer (EFT), or a series of related unauthorized transfers. Every rule below comes only from the § 1005.6 text you provided.
+
+**Personas:** Disputes Analyst (DA), Compliance Officer (CO)
+
+**Assumptions and open items.** The text doesn't define these, so each story flags them as configuration or open questions rather than inventing rules:
+1. "Business day" calendar and cutoff
+2. The content of the § 1005.7(b)(1)–(3) disclosures (the platform only records whether they were provided)
+3. What counts as an "accepted access device" and a "means to identify the consumer"
+4. How the institution "establishes" that later transfers would not have occurred with timely notice
+5. State-law and agreement caps (platform needs a data source)
+6. What counts as "extenuating circumstances" and a "reasonable period"
+
+---
+
+## US-1: Check conditions for liability (§ 1005.6(a))
+
+**As a** Disputes Analyst, **I want** the platform to confirm the conditions for consumer liability before any amount is assessed, **so that** no consumer is held liable when the institution hasn't met its prerequisites.
+
+```gherkin
+Feature: Conditions for consumer liability
+
+  Background:
+    Given an unauthorized EFT dispute exists for a consumer account
+
+  Scenario: Liability blocked when required disclosures were not provided
+    Given the institution has not provided all disclosures required by §1005.7(b)(1), (2) and (3)
+    When the liability determination runs
+    Then the consumer liability amount is $0
+    And the determination reason is "Required disclosures not provided"
+
+  Scenario: Liability permitted when disclosures were provided and no access device was involved
+    Given the institution provided the disclosures required by §1005.7(b)(1), (2) and (3)
+    And the unauthorized transfer did not involve an access device
+    When the liability determination runs
+    Then the case proceeds to limitation calculation under §1005.6(b)
+
+  Scenario: Liability blocked when the access device was not an accepted access device
+    Given the institution provided the required disclosures
+    And the unauthorized transfer involved an access device
+    And the access device is not recorded as an accepted access device
+    When the liability determination runs
+    Then the consumer liability amount is $0
+    And the determination reason is "Access device not accepted"
+
+  Scenario: Liability blocked when no means to identify the consumer was provided
+    Given the institution provided the required disclosures
+    And the unauthorized transfer involved an accepted access device
+    And the institution did not provide a means to identify the consumer to whom the device was issued
+    When the liability determination runs
+    Then the consumer liability amount is $0
+    And the determination reason is "No means of identification provided"
+
+  Scenario: Liability permitted when all access device conditions are met
+    Given the institution provided the required disclosures
+    And the unauthorized transfer involved an accepted access device
+    And the institution provided a means to identify the consumer to whom it was issued
+    When the liability determination runs
+    Then the case proceeds to limitation calculation under §1005.6(b)
+```
+
+---
+
+## US-2: Apply $50 cap when notice is timely (§ 1005.6(b)(1))
+
+**As a** Disputes Analyst, **I want** liability capped at the lesser of $50 or the unauthorized amount when the consumer gives timely notice of a lost or stolen access device, **so that** timely reporters are charged correctly.
+
+```gherkin
+Feature: Liability limit when timely notice is given
+
+  Background:
+    Given the §1005.6(a) conditions for liability are met
+    And the unauthorized transfers involve a lost or stolen access device
+    And the platform has recorded the date the consumer learned of the loss or theft
+
+  Scenario Outline: Liability is the lesser of $50 or transfers before notice
+    Given the consumer notified the institution within two business days after learning of the loss or theft
+    And unauthorized transfers totaling <before_notice> occurred before notice
+    When the liability determination runs
+    Then the consumer liability amount is <liability>
+
+    Examples:
+      | before_notice | liability |
+      | $20.00        | $20.00    |
+      | $50.00        | $50.00    |
+      | $200.00       | $50.00    |
+
+  Scenario: Notice on the last day of the two-business-day window is timely
+    Given the consumer notified the institution on the second business day after learning of the loss or theft
+    When the liability determination runs
+    Then the notice is classified as timely
+```
+
+---
+
+## US-3: Apply $500 cap when notice is not timely (§ 1005.6(b)(2))
+
+**As a** Disputes Analyst, **I want** the platform to compute liability for late notice as the lesser of $500 or the sum of two components, **so that** later transfers are only charged when the institution can establish they would have been prevented.
+
+```gherkin
+Feature: Liability limit when timely notice is not given
+
+  Background:
+    Given the §1005.6(a) conditions for liability are met
+    And the unauthorized transfers involve a lost or stolen access device
+    And the consumer did not notify the institution within two business days after learning of the loss or theft
+
+  Scenario Outline: Liability is the lesser of $500 or the sum of components (i) and (ii)
+    Given unauthorized transfers totaling <within_2_days> occurred within the two business days
+    And unauthorized transfers totaling <after_2_days> occurred after the close of two business days and before notice
+    And the institution <established> that the after-period transfers would not have occurred had the consumer notified within two business days
+    When the liability determination runs
+    Then component (i) is <comp_i>
+    And component (ii) is <comp_ii>
+    And the consumer liability amount is <liability>
+
+    Examples:
+      | within_2_days | after_2_days | established     | comp_i | comp_ii  | liability |
+      | $20.00        | $100.00      | has established | $20.00 | $100.00  | $120.00   |
+      | $120.00       | $100.00      | has established | $50.00 | $100.00  | $150.00   |
+      | $120.00       | $600.00      | has established | $50.00 | $600.00  | $500.00   |
+      | $120.00       | $600.00      | has not established | $50.00 | $0.00 | $50.00    |
+      | $30.00        | $600.00      | has not established | $30.00 | $0.00 | $30.00    |
+
+  Scenario: Component (ii) requires a recorded institution finding
+    Given the institution has not recorded a finding on whether after-period transfers would have been prevented by timely notice
+    When the liability determination runs
+    Then the case is held in "Pending institution establishment" status
+    And no amount is assessed for component (ii)
+
+  Scenario: Liability never exceeds $500
+    Given components (i) and (ii) sum to more than $500.00
+    When the liability determination runs
+    Then the consumer liability amount is $500.00
+```
+
+---
+
+## US-4: Apply the 60-day periodic statement rule (§ 1005.6(b)(3))
+
+**As a** Disputes Analyst, **I want** the platform to evaluate whether the consumer reported an unauthorized transfer shown on a periodic statement within 60 days of transmittal, **so that** liability for subsequent transfers is determined correctly.
+
+```gherkin
+Feature: Periodic statement reporting window
+
+  Background:
+    Given the §1005.6(a) conditions for liability are met
+    And an unauthorized EFT appears on a periodic statement
+    And the platform has recorded the statement transmittal date
+
+  Scenario: Consumer reports within 60 days of transmittal
+    Given the consumer notified the institution within 60 days of the statement transmittal date
+    When the liability determination runs
+    Then the consumer is not held liable under §1005.6(b)(3) for subsequent transfers
+
+  Scenario: Consumer reports after 60 days and the institution establishes prevention
+    Given the consumer did not notify the institution within 60 days of the statement transmittal date
+    And unauthorized transfers totaling $400.00 occurred after the close of the 60 days and before notice
+    And the institution established that those transfers would not have occurred had the consumer notified within the 60-day period
+    When the liability determination runs
+    Then the consumer liability amount for the transfers is $400.00
+
+  Scenario: Consumer reports after 60 days and the institution does not establish prevention
+    Given the consumer did not notify the institution within 60 days of the statement transmittal date
+    And unauthorized transfers occurred after the close of the 60 days and before notice
+    And the institution has not established that those transfers would have been prevented by timely notice
+    When the liability determination runs
+    Then the consumer liability amount for those transfers is $0.00
+
+  Scenario: Transfers within the 60 days are not charged under this rule
+    Given the consumer did not notify the institution within 60 days of the statement transmittal date
+    And unauthorized transfers occurred on or before the close of the 60 days
+    When the liability determination runs
+    Then those transfers are not assessed under §1005.6(b)(3)
+
+  Scenario: Access device involved adds amounts under (b)(1) or (b)(2)
+    Given the unauthorized transfer involved an access device
+    When the liability determination runs
+    Then the platform calculates the §1005.6(b)(3) amount
+    And the platform also calculates the applicable §1005.6(b)(1) or (b)(2) amount
+    And the determination shows each amount separately
+```
+
+> **Open item for CO/Product:** the text says the consumer "may be liable for other amounts" in (b)(1)/(b)(2) when an access device is involved. How the (b)(3) amount and the (b)(1)/(b)(2) amount combine, and whether any overall ceiling applies, is not stated in this text. The final scenario therefore shows the amounts separately and leaves the combination rule to be confirmed.
+
+---
+
+## US-5: Extend notice time limits for extenuating circumstances (§ 1005.6(b)(4))
+
+**As a** Disputes Analyst, **I want** to record extenuating circumstances and extend the notice deadlines to a reasonable period, **so that** a consumer whose delay was justified is evaluated against the extended deadlines.
+
+```gherkin
+Feature: Extension of time limits
+
+  Scenario: Analyst records extenuating circumstances and sets an extended period
+    Given a dispute where the consumer's notice was later than a time limit in §1005.6(b)
+    And the consumer's delay was due to extenuating circumstances
+    When the analyst records the circumstances and an extended reasonable period
+    Then the platform applies the extended period in place of the original time limit
+    And the original and extended deadlines are both retained in the case record
+
+  Scenario: Notice within the extended period is treated as timely
+    Given an extended period has been recorded for the case
+    And the consumer gave notice within the extended period
+    When the liability determination runs
+    Then the notice is classified as timely for the extended time limit
+
+  Scenario: No extension applied without a recorded justification
+    Given no extenuating circumstances have been recorded
+    When the liability determination runs
+    Then the original time limits are used
+
+  Scenario: Extension decision is auditable
+    When an extension is recorded
+    Then the platform stores the analyst ID, timestamp, circumstances and extended period
+```
+
+---
+
+## US-6: Determine when and how notice was given (§ 1005.6(b)(5))
+
+**As a** Disputes Analyst, **I want** the platform to date notice according to the rules for how it was given, **so that** timeliness is measured from the correct point.
+
+```gherkin
+Feature: Notice to the financial institution
+
+  Scenario Outline: Accepted notice channels
+    When the consumer gives notice <channel>
+    Then the platform accepts the notice as valid notice
+
+    Examples:
+      | channel      |
+      | in person    |
+      | by telephone |
+      | in writing   |
+
+  Scenario: Notice is given when the consumer takes reasonable steps
+    Given the consumer took steps reasonably necessary to provide the pertinent information
+    And no particular employee or agent of the institution actually received the information
+    When the notice date is determined
+    Then notice is treated as given on the date the consumer took those steps
+
+  Scenario: Written notice dated at mailing or delivery for transmission
+    Given the consumer notified the institution in writing
+    When the notice date is determined
+    Then the notice date is the date the consumer mailed it or delivered it for transmission by another usual means
+    And not the date the institution received it
+
+  Scenario: Constructive notice
+    Given the institution became aware of circumstances leading to a reasonable belief that an unauthorized transfer to or from the consumer's account has been or may be made
+    When the analyst records constructive notice
+    Then the platform may set the notice date to the date the institution became aware
+    And the analyst's basis for the belief is stored in the case record
+```
+
+---
+
+## US-7: Apply a lower state-law or agreement cap (§ 1005.6(b)(6))
+
+**As a** Compliance Officer, **I want** liability limited to the amount under any applicable state law or customer agreement when that amount is lower, **so that** the consumer never pays more than the lowest applicable limit.
+
+```gherkin
+Feature: Lower liability under state law or agreement
+
+  Background:
+    Given a liability amount has been calculated under §1005.6(b)(1) through (b)(3)
+
+  Scenario Outline: Consumer liability is the lower of the Regulation E amount and the state-law or agreement amount
+    Given the applicable state law or agreement imposes liability of <other_limit>
+    And the Regulation E calculated liability is <reg_e_amount>
+    When the final liability is determined
+    Then the consumer liability amount is <final>
+
+    Examples:
+      | reg_e_amount | other_limit | final   |
+      | $50.00       | $0.00       | $0.00   |
+      | $500.00      | $200.00     | $200.00 |
+      | $50.00       | $500.00     | $50.00  |
+
+  Scenario: No state-law or agreement limit applies
+    Given no state law or agreement imposes a different liability amount
+    When the final liability is determined
+    Then the consumer liability amount equals the Regulation E calculated amount
+
+  Scenario: Source of the lower limit is recorded
+    Given a state law or agreement limit is applied
+    Then the determination records which source set the limit and the amount imposed
+```
+
+---
+
+## US-8: Treat related unauthorized transfers as a series (§ 1005.6(b) lead-in)
+
+**As a** Disputes Analyst, **I want** related unauthorized transfers grouped so one liability limit is applied to the series, **so that** the consumer is not charged a separate cap per transfer.
+
+```gherkin
+Feature: Series of related unauthorized transfers
+
+  Scenario: One cap applies across a series
+    Given three related unauthorized transfers of $100.00 each occurred before timely notice
+    And the analyst has linked them as a series
+    When the liability determination runs
+    Then the §1005.6(b)(1) limit is applied once to the series
+    And the consumer liability amount is $50.00
+
+  Scenario: Unlinked transfers are assessed separately
+    Given two unauthorized transfers have not been linked as related
+    When the liability determination runs
+    Then each is assessed as its own case
+
+  Scenario: Determination shows the full calculation
+    When a liability determination completes
+    Then the output shows the transfers included, the notice classification, each component amount, any cap applied, any state-law or agreement limit, and the final liability
+```
+
+---
+
+## Traceability
+
+| Story | Regulatory text |
+|---|---|
+| US-1 | § 1005.6(a) |
+| US-2 | § 1005.6(b)(1) |
+| US-3 | § 1005.6(b)(2)(i)–(ii) |
+| US-4 | § 1005.6(b)(3) |
+| US-5 | § 1005.6(b)(4) |
+| US-6 | § 1005.6(b)(5)(i)–(iii) |
+| US-7 | § 1005.6(b)(6) |
+| US-8 | § 1005.6(b) introductory text |
+
+**Not delivered:** this conversation can't save or send files, so everything is above in text form. Dollar figures in the examples are illustrative test data, not regulatory values (other than the $50 and $500 limits).

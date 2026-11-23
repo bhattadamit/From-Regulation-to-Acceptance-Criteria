@@ -1,0 +1,742 @@
+# **Regulation E Error Resolution — User Stories and Gherkin Acceptance Criteria**
+
+**Regulatory scope:** 12 CFR § 1005.11, Procedures for resolving errors\
+**Platform:** Card and ACH Disputes Platform\
+**Perspective:** US financial institution\
+**Source constraint:** All acceptance criteria below are derived exclusively from the regulatory text supplied in the request. No additional regulatory requirements, operational assumptions, or external interpretations are introduced.
+
+## **1. Scope and implementation approach**
+
+The platform must support the end-to-end Regulation E error resolution lifecycle, including:
+
+1. Error classification and inquiry eligibility.
+2. Consumer notice intake and timeliness validation.
+3. Oral notice and written confirmation management.
+4. Investigation deadlines and extensions.
+5. Provisional credit eligibility, calculation, and communication.
+6. Investigation findings and account corrections.
+7. Consumer notification and document requests.
+8. Provisional credit debiting and five-business-day protections.
+9. Reassertion of previously resolved errors.
+
+### **Key regulatory parameters**
+
+| Regulatory requirement                             | Standard period                           | Applicable exception                                                 |
+| -------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------- |
+| Consumer notice deadline                           | 60 days after statement/documentation     | 60 days after requested information is sent for § 1005.11(a)(1)(vii) |
+| Written confirmation after oral notice             | 10 business days                          | If institution requires confirmation                                 |
+| Initial investigation and determination            | 10 business days                          | 20 business days for qualifying new accounts                         |
+| Provisional credit                                 | Within 10 business days                   | 20 business days for qualifying new accounts                         |
+| Extended investigation                             | 45 calendar days                          | 90 calendar days for specified transfers                             |
+| Consumer notification of provisional credit        | Within 2 business days after crediting    | None stated                                                          |
+| Consumer notification of investigation results     | Within 3 business days after completion   | None stated                                                          |
+| Error correction                                   | Within 1 business day after determination | None stated                                                          |
+| Consumer protection after provisional credit debit | 5 business days after notification        | None stated                                                          |
+
+**Important implementation distinction:** The 10-, 20-, and 45-/90-day periods must not be treated as interchangeable. The 20-business-day extension applies to the applicable 10-business-day periods, while the 90-day extension applies to the 45-day investigation period.
+
+For this backlog, business-day and calendar-day calculations should be maintained as distinct deadline types.
+
+## **2. Epic 1 — Error classification and eligibility**
+
+### **US-001: Identify qualifying Regulation E errors**
+
+**User story**
+
+As a disputes operations user, I want the platform to identify whether a consumer's claim qualifies as an error under Regulation E, so that eligible notices enter the error resolution process.
+
+**Acceptance criteria**
+
+```
+Feature: Regulation E error classification
+
+  Scenario Outline: Classify a qualifying error
+    Given a consumer submits a claim concerning "<error_type>"
+    When the platform evaluates the claim
+    Then the claim must be classified as a Regulation E error
+
+    Examples:
+      | error_type                                      |
+      | Unauthorized electronic fund transfer           |
+      | Incorrect electronic fund transfer              |
+      | Omission of transfer from periodic statement    |
+      | Computational or bookkeeping error              |
+      | Incorrect amount received from electronic terminal |
+      | Electronic fund transfer not properly identified |
+      | Request for required documentation or clarification |
+
+  Scenario: Classify an inquiry that is not an error
+    Given a consumer submits a routine inquiry about account balance
+    When the platform evaluates the inquiry
+    Then the inquiry must not be classified as a Regulation E error
+
+  Scenario Outline: Exclude other non-error inquiries
+    Given a consumer submits a request for "<request_type>"
+    When the platform evaluates the request
+    Then the request must not be classified as a Regulation E error
+
+    Examples:
+      | request_type                            |
+      | Tax or other recordkeeping information  |
+      | Duplicate copies of documentation      |
+```
+
+**Regulatory reference:** § 1005.11(a)(1)–(2)
+
+### **US-002: Capture consumer notice information**
+
+**User story**
+
+As a disputes operations user, I want the platform to capture the required consumer notice information, so that the institution can determine whether the notice qualifies for Regulation E error resolution.
+
+**Acceptance criteria**
+
+```
+Feature: Consumer notice information
+
+  Scenario: Accept an oral notice of error
+    Given a consumer provides an oral notice of error
+    When the institution receives the notice
+    Then the platform must record the notice as received
+
+  Scenario: Accept a written notice of error
+    Given a consumer provides a written notice of error
+    When the institution receives the notice
+    Then the platform must record the notice as received
+
+  Scenario: Capture required consumer identification
+    Given the institution receives a notice of error
+    When the notice is recorded
+    Then the consumer's name must be identifiable
+    And the consumer's account number must be identifiable
+
+  Scenario: Capture details of the alleged error
+    Given the institution receives a notice of error
+    When the notice is recorded
+    Then the platform must capture why the consumer believes an error exists
+    And capture the type of error to the extent possible
+    And capture the date of the error to the extent possible
+    And capture the amount of the error to the extent possible
+
+  Scenario: Apply exception for documentation or clarification requests
+    Given the consumer submits a request described under Section 1005.11(a)(1)(vii)
+    When the platform records the request
+    Then the platform must not require the type, date, and amount of the alleged error
+    As a condition for recording that request
+```
+
+**Regulatory reference:** § 1005.11(b)(1)
+
+### **US-003: Validate notice timeliness**
+
+**User story**
+
+As a disputes operations user, I want the platform to validate the date a consumer's notice was received against the applicable regulatory deadline, so that notices are evaluated using the correct 60-day period.
+
+**Acceptance criteria**
+
+```
+Feature: Consumer notice timeliness
+
+  Scenario: Notice received within 60 days of periodic statement
+    Given a periodic statement first reflects the alleged error
+    And the institution sent the statement
+    When the consumer's notice is received no later than 60 days after the statement was sent
+    Then the notice must satisfy the timing requirement
+
+  Scenario: Notice received after 60 days of periodic statement
+    Given a periodic statement first reflects the alleged error
+    And the institution sent the statement
+    When the consumer's notice is received more than 60 days after the statement was sent
+    Then the notice does not satisfy the timing requirement in Section 1005.11(b)(1)(i)
+
+  Scenario: Notice received within 60 days of passbook documentation
+    Given passbook documentation first reflects the alleged error
+    When the consumer's notice is received no later than 60 days after the documentation was provided
+    Then the notice must satisfy the timing requirement
+
+  Scenario: Notice based on requested documentation or clarification
+    Given the consumer requested documentation or clarification under Section 1005.11(a)(1)(vii)
+    And the institution sent the requested information
+    When the consumer submits a notice of error no later than 60 days after the information was sent
+    Then the notice must be considered timely
+
+  Scenario: Notice based on requested documentation received after 60 days
+    Given the institution sent information requested under Section 1005.11(a)(1)(vii)
+    When the consumer submits a notice of error more than 60 days after the information was sent
+    Then the notice does not satisfy the timing requirement in Section 1005.11(b)(3)
+```
+
+**Regulatory reference:** § 1005.11(b)(1)(i), (b)(3)
+
+## **3. Epic 2 — Oral notice and written confirmation**
+
+### **US-004: Manage written confirmation of oral notice**
+
+**User story**
+
+As a disputes operations user, I want the platform to support written confirmation requirements following oral notices, so that the institution can exercise its option to require confirmation within the prescribed period.
+
+**Acceptance criteria**
+
+```
+Feature: Written confirmation of oral notice
+
+  Scenario: Institution does not require written confirmation
+    Given a consumer provides an oral notice of error
+    And the institution does not require written confirmation
+    When the notice is recorded
+    Then the platform must not require written confirmation
+
+  Scenario: Institution requires written confirmation
+    Given a consumer provides an oral notice of error
+    And the institution requires written confirmation
+    When the oral notice is recorded
+    Then the consumer must be informed of the written confirmation requirement
+    And the consumer must be provided with the address where confirmation must be sent
+
+  Scenario: Written confirmation received within 10 business days
+    Given the institution requires written confirmation of an oral notice
+    When written confirmation is received within 10 business days of the oral notice
+    Then the platform must record the confirmation as received
+
+  Scenario: Written confirmation not received within 10 business days
+    Given the institution requires written confirmation of an oral notice
+    And written confirmation has not been received within 10 business days
+    When the institution evaluates provisional credit eligibility
+    Then the institution may rely on the exception to provisional credit under Section 1005.11(c)(2)(i)(A)
+```
+
+**Regulatory reference:** § 1005.11(b)(2), (c)(2)(i)(A)
+
+## **4. Epic 3 — Investigation and regulatory deadlines**
+
+### **US-005: Calculate initial investigation deadline**
+
+**User story**
+
+As a disputes operations user, I want the platform to calculate the applicable initial investigation deadline, so that investigations are completed within the required regulatory timeframe.
+
+**Acceptance criteria**
+
+```
+Feature: Initial investigation deadline
+
+  Scenario: Standard investigation deadline
+    Given the institution receives a notice of error
+    And the transfer does not qualify for an extended initial period
+    When the platform calculates the investigation deadline
+    Then the investigation deadline must be 10 business days after receipt
+
+  Scenario: New account investigation deadline
+    Given the institution receives a notice of error
+    And the alleged transfer occurred within 30 days after the first deposit to the account
+    When the platform calculates the investigation deadline
+    Then the investigation deadline must be 20 business days after receipt
+
+  Scenario: Determine error within initial investigation period
+    Given the institution receives a notice of error
+    When the institution investigates the alleged error
+    Then the institution must determine whether an error occurred within the applicable 10 or 20 business day period
+
+  Scenario: Report investigation results within three business days
+    Given the institution has completed its investigation
+    When the platform calculates the results notification deadline
+    Then the deadline must be within three business days after investigation completion
+```
+
+**Regulatory reference:** § 1005.11(c)(1), (c)(3)(i)
+
+### **US-006: Support extended investigations**
+
+**User story**
+
+As a disputes operations user, I want the platform to support extended investigation timelines when the institution cannot complete its investigation within the initial period, so that the institution can use the extended timeframe while satisfying the applicable provisional credit requirements.
+
+**Acceptance criteria**
+
+```
+Feature: Extended investigation period
+
+  Scenario: Standard extended investigation
+    Given the institution cannot complete its investigation within 10 business days
+    And the alleged transfer does not qualify for a 90-day investigation period
+    When the institution elects to use the extended investigation period
+    Then the investigation must be completed within 45 days from receipt of the notice of error
+
+  Scenario: Extended investigation for qualifying new account transfer
+    Given the institution cannot complete its investigation within the initial period
+    And the alleged transfer occurred within 30 days after the first deposit to the account
+    When the institution elects to use the extended investigation period
+    Then the investigation must be completed within 90 days from receipt of the notice of error
+
+  Scenario: Extended investigation for transfer not initiated within a state
+    Given the institution cannot complete its investigation within 10 business days
+    And the alleged transfer was not initiated within a state
+    When the institution elects to use the extended investigation period
+    Then the investigation must be completed within 90 days from receipt of the notice of error
+
+  Scenario: Extended investigation for point-of-sale debit card transaction
+    Given the institution cannot complete its investigation within 10 business days
+    And the alleged transfer resulted from a point-of-sale debit card transaction
+    When the institution elects to use the extended investigation period
+    Then the investigation must be completed within 90 days from receipt of the notice of error
+
+  Scenario: Complete extended investigation within applicable period
+    Given the institution has elected to use an extended investigation period
+    When the investigation is completed
+    Then the platform must validate completion against the applicable 45-day or 90-day deadline
+```
+
+**Regulatory reference:** § 1005.11(c)(2), (c)(3)(ii)
+
+### **US-007: Determine investigation methodology**
+
+**User story**
+
+As a disputes operations user, I want the platform to recognize when reviewing the institution's own records satisfies the investigation requirements, so that eligible third-party transfer disputes can be resolved using the permitted investigation approach.
+
+**Acceptance criteria**
+
+```
+Feature: Investigation methodology
+
+  Scenario: Institution records review satisfies investigation requirement
+    Given the alleged error concerns a transfer to or from a third party
+    And there is no agreement between the institution and the third party for the type of electronic fund transfer involved
+    And the transfer is not covered by Section 1005.14
+    When the institution reviews its own records concerning the alleged error
+    Then that review satisfies the investigation requirement under Section 1005.11(c)(4)
+
+  Scenario: Own-records review exception does not apply
+    Given the alleged error concerns a transfer to or from a third party
+    And an agreement exists between the institution and the third party for the type of electronic fund transfer involved
+    When the institution evaluates its investigation methodology
+    Then the institution cannot rely on the own-records-only provision in Section 1005.11(c)(4)
+
+  Scenario: Own-records review exception does not apply to covered transfers
+    Given the alleged error concerns a transfer to or from a third party
+    And the transfer is covered by Section 1005.14
+    When the institution evaluates its investigation methodology
+    Then the institution cannot rely on the own-records-only provision in Section 1005.11(c)(4)
+```
+
+**Regulatory reference:** § 1005.11(c)(4)
+
+## **5. Epic 4 — Provisional credit management**
+
+### **US-008: Calculate and issue provisional credit**
+
+**User story**
+
+As a disputes operations user, I want the platform to calculate and issue provisional credit for eligible unresolved disputes, so that consumers receive access to the alleged error amount during the extended investigation period.
+
+**Acceptance criteria**
+
+```
+Feature: Provisional credit
+
+  Scenario: Provisional credit required for extended investigation
+    Given the institution cannot complete its investigation within the initial 10 business day period
+    And the institution elects to use the extended investigation period
+    And no provisional credit exception applies
+    When the platform processes the dispute
+    Then the consumer's account must be provisionally credited
+    And the credit must equal the amount of the alleged error
+    And applicable interest must be included
+    And the provisional credit must be issued within 10 business days of receipt of the notice
+
+  Scenario: Provisional credit for qualifying new account
+    Given the alleged transfer occurred within 30 days after the first deposit to the account
+    And the institution elects to use the extended investigation period
+    When the platform calculates the provisional credit deadline
+    Then the provisional credit must be issued within 20 business days of receipt of the notice
+
+  Scenario: Withhold maximum permitted amount for qualifying unauthorized transfer
+    Given the alleged error is an unauthorized electronic fund transfer
+    And the institution has a reasonable basis for believing an unauthorized electronic fund transfer occurred
+    And the institution has satisfied the requirements of Section 1005.6(a)
+    When the institution calculates provisional credit
+    Then the institution may withhold an amount from the credit
+    And the withheld amount must not exceed $50
+
+  Scenario: Do not apply unauthorized transfer withholding without required conditions
+    Given the alleged error is an unauthorized electronic fund transfer
+    And the institution does not satisfy the requirements for withholding under Section 1005.11(c)(2)(i)
+    When the institution calculates provisional credit
+    Then the platform must not apply the $50 withholding exception
+
+  Scenario: No provisional credit when required written confirmation is not received
+    Given the institution requires written confirmation of an oral notice
+    And written confirmation is not received within 10 business days
+    When the institution evaluates provisional credit eligibility
+    Then the institution need not provisionally credit the consumer's account
+
+  Scenario: No provisional credit for Regulation T account
+    Given the alleged error involves an account subject to Regulation T
+    When the institution evaluates provisional credit eligibility
+    Then the institution need not provisionally credit the consumer's account
+```
+
+**Regulatory reference:** § 1005.11(c)(2)(i), (c)(3)(i)
+
+### **US-009: Notify consumer of provisional credit**
+
+**User story**
+
+As a disputes operations user, I want the platform to notify consumers when provisional credit is applied, so that consumers are informed of the amount and date of the credit and can use the funds during the investigation.
+
+**Acceptance criteria**
+
+```
+Feature: Provisional credit notification
+
+  Scenario: Notify consumer of provisional credit
+    Given provisional credit has been applied to the consumer's account
+    When the platform generates the provisional credit notification
+    Then the notification must include the provisional credit amount
+    And the notification must include the provisional credit date
+    And the notification must be provided within two business days after crediting
+
+  Scenario: Provide full use of provisionally credited funds
+    Given provisional credit has been applied to the consumer's account
+    When the investigation remains open
+    Then the consumer must have full use of the provisionally credited funds
+```
+
+**Regulatory reference:** § 1005.11(c)(2)(ii)
+
+## **6. Epic 5 — Investigation outcomes and corrections**
+
+### **US-010: Correct confirmed errors**
+
+**User story**
+
+As a disputes operations user, I want the platform to initiate correction when an investigation confirms an error, so that the consumer's account is corrected within the regulatory timeframe.
+
+**Acceptance criteria**
+
+```
+Feature: Confirmed error correction
+
+  Scenario: Correct error after initial investigation
+    Given the institution determines that an error occurred
+    When the determination is recorded
+    Then the institution must correct the error within one business day after the determination
+
+  Scenario: Correct error after extended investigation
+    Given the institution determines that an error occurred during an extended investigation
+    When the determination is recorded
+    Then the institution must correct the error within one business day after the determination
+
+  Scenario: Report confirmed error investigation results
+    Given the institution has completed its investigation
+    And the institution determines that an error occurred
+    When the results are communicated to the consumer
+    Then the results must be reported within three business days after investigation completion
+```
+
+**Regulatory reference:** § 1005.11(c)(1), (c)(2)(iii)–(iv)
+
+### **US-011: Communicate no-error or different-error findings**
+
+**User story**
+
+As a disputes operations user, I want the platform to generate the required written explanation when the institution determines that no error occurred or that the error differed from the consumer's allegation, so that the consumer receives the investigation findings and document request rights.
+
+**Acceptance criteria**
+
+```
+Feature: No-error and different-error investigation outcomes
+
+  Scenario: Communicate no-error determination
+    Given the institution completes its investigation
+    And determines that no error occurred
+    When the institution reports the investigation results
+    Then the report must include a written explanation of the institution's findings
+    And the report must explain the consumer's right to request copies of documents relied upon
+
+  Scenario: Communicate different error determination
+    Given the institution completes its investigation
+    And determines that an error occurred in a manner or amount different from the consumer's allegation
+    When the institution reports the investigation results
+    Then the report must include a written explanation of the institution's findings
+    And the report must explain the consumer's right to request copies of documents relied upon
+
+  Scenario: Consumer requests supporting documents
+    Given the institution has provided a written explanation of its investigation findings
+    And the consumer requests copies of documents relied upon
+    When the institution receives the request
+    Then the institution must promptly provide copies of the documents
+
+  Scenario: Report findings within required timeframe
+    Given the institution has completed its investigation
+    And the institution determines that no error occurred or a different error occurred
+    When the institution reports the investigation results
+    Then the results must be reported within three business days after investigation completion
+```
+
+**Regulatory reference:** § 1005.11(c)(1), (c)(2)(iv), (d)(1)
+
+### **US-012: Finalize provisional credit**
+
+**User story**
+
+As a disputes operations user, I want the platform to finalize provisional credit when appropriate, so that the account reflects the final investigation outcome and the consumer receives the required notification.
+
+**Acceptance criteria**
+
+```
+Feature: Provisional credit finalization
+
+  Scenario: Make provisional credit final
+    Given provisional credit has been applied to the consumer's account
+    And the institution determines that an error occurred
+    When the institution finalizes the provisional credit
+    Then the platform must record the provisional credit as final
+    And the consumer's investigation results notification must indicate that provisional credit has been made final, if applicable
+
+  Scenario: Report final provisional credit status
+    Given the institution has completed its investigation
+    And provisional credit has been made final
+    When the institution reports the investigation results
+    Then the notification must be sent within three business days after investigation completion
+    And the notification must identify the provisional credit as final
+```
+
+**Regulatory reference:** § 1005.11(c)(2)(iii)–(iv)
+
+## **7. Epic 6 — Provisional credit debit and consumer protections**
+
+### **US-013: Manage provisional credit debit**
+
+**User story**
+
+As a disputes operations user, I want the platform to manage provisional credit debits and generate the required consumer notifications, so that the institution satisfies the notification and payment protections required when provisionally credited funds are debited.
+
+**Acceptance criteria**
+
+```
+Feature: Provisional credit debit
+
+  Scenario: Notify consumer when provisional credit is debited
+    Given provisional credit has been applied to the consumer's account
+    When the institution debits the provisionally credited amount
+    Then the consumer must be notified of the debit date
+    And the consumer must be notified of the debit amount
+
+  Scenario: Notify consumer of five-business-day payment protection
+    Given provisional credit has been applied to the consumer's account
+    When the institution debits the provisionally credited amount
+    Then the consumer must be notified that the institution will honor checks, drafts, or similar instruments payable to third parties
+    And the consumer must be notified that the institution will honor preauthorized transfers
+    And the notification must state that these protections apply for five business days after notification
+    And the notification must state that the consumer will not incur charges as a result of an overdraft caused by the debit
+
+  Scenario: Honor qualifying third-party payment instruments
+    Given the institution has debited provisionally credited funds
+    And the consumer has received notification of the debit
+    When a check, draft, or similar instrument payable to a third party is presented within five business days after notification
+    Then the institution must honor the instrument
+    If the institution would have paid the instrument had the provisionally credited funds not been debited
+
+  Scenario: Honor qualifying preauthorized transfers
+    Given the institution has debited provisionally credited funds
+    And the consumer has received notification of the debit
+    When a preauthorized transfer is presented within five business days after notification
+    Then the institution must honor the transfer
+    If the institution would have paid the transfer had the provisionally credited funds not been debited
+
+  Scenario: Apply overdraft charge protection
+    Given the institution has debited provisionally credited funds
+    And the consumer presents a qualifying payment instrument or preauthorized transfer within five business days after notification
+    When the institution honors the payment
+    Then the consumer must not be charged as a result of an overdraft caused by the debit of provisional credit
+```
+
+**Regulatory reference:** § 1005.11(d)(2)(i)–(ii)
+
+## **8. Epic 7 — Reassertion of previously resolved errors**
+
+### **US-014: Manage reasserted error claims**
+
+**User story**
+
+As a disputes operations user, I want the platform to identify previously resolved error claims when consumers reassert them, so that the institution can apply the appropriate repeat-claim handling requirements.
+
+**Acceptance criteria**
+
+```
+Feature: Reassertion of error
+
+  Scenario: Consumer reasserts an error after full regulatory compliance
+    Given the institution has fully complied with the error resolution requirements
+    And the consumer subsequently reasserts the same error
+    And the original error was not asserted following receipt of information under Section 1005.11(a)(1)(vii)
+    When the platform identifies the reasserted error
+    Then the institution must have no further responsibilities under Section 1005.11 for that reassertion
+
+  Scenario: Consumer reasserts an error following requested information
+    Given the consumer previously requested information or clarification under Section 1005.11(a)(1)(vii)
+    And the consumer asserts an error following receipt of the requested information
+    When the platform identifies the assertion
+    Then the exception to the general reassertion rule must be recognized
+    And the platform must not automatically treat the assertion as a reassertion for which the institution has no further responsibilities
+
+  Scenario: Institution has not fully complied with error resolution requirements
+    Given the consumer reasserts an error
+    And the institution has not fully complied with the error resolution requirements
+    When the platform evaluates the reassertion
+    Then the platform must not apply the no-further-responsibilities provision in Section 1005.11(e)
+```
+
+**Regulatory reference:** § 1005.11(e)
+
+## **9. Cross-platform considerations: Card and ACH disputes**
+
+The following matrix organizes the requirements by platform processing context. It does not create additional regulatory acceptance criteria.
+
+| Capability                                | Card disputes             | ACH disputes              |
+| ----------------------------------------- | ------------------------- | ------------------------- |
+| Unauthorized electronic fund transfer     | Supported                 | Supported                 |
+| Incorrect electronic fund transfer        | Supported                 | Supported                 |
+| Omitted transfer from periodic statement  | Supported                 | Supported                 |
+| Computational/bookkeeping error           | Supported                 | Supported                 |
+| Incorrect terminal cash amount            | Applicable where relevant | Applicable where relevant |
+| Transfer identification issue             | Supported                 | Supported                 |
+| Documentation/clarification request       | Supported                 | Supported                 |
+| Oral and written notice                   | Supported                 | Supported                 |
+| 60-day notice validation                  | Supported                 | Supported                 |
+| 10-/20-business-day initial investigation | Supported                 | Supported                 |
+| 45-/90-day extended investigation         | Supported                 | Supported                 |
+| Provisional credit                        | Supported                 | Supported                 |
+| Investigation outcome notification        | Supported                 | Supported                 |
+| Provisional credit debit protections      | Supported                 | Supported                 |
+| Reassertion handling                      | Supported                 | Supported                 |
+
+**Important distinction for card processing:** Section 1005.11(c)(3)(ii)(B) specifically identifies a point-of-sale debit card transaction as qualifying for the 90-day investigation period.
+
+The 90-day period must not automatically be applied to every card dispute.
+
+For ACH processing, the 90-day period may apply when the transfer was not initiated within a state or occurred within 30 days after the first deposit to the account.
+
+## **10. Suggested platform data requirements**
+
+The following is a proposed data model to support the user stories. These are implementation recommendations, not additional regulatory obligations.
+
+| Data entity                  | Suggested attributes                                                                                                                           |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dispute                      | Dispute ID, consumer ID, account number, transfer type, error classification, claim amount, claim date                                         |
+| Notice                       | Notice channel, receipt date, consumer name, account number, alleged error reason                                                              |
+| Statement                    | Statement date sent, statement period, first date error reflected                                                                              |
+| Documentation request        | Request type, request date, information sent date                                                                                              |
+| Written confirmation         | Required indicator, oral notice date, confirmation deadline, confirmation received date                                                        |
+| Account eligibility          | First deposit date, Regulation T applicability                                                                                                 |
+| Investigation                | Investigation start date, initial deadline, extended deadline, investigation completion date                                                   |
+| Investigation classification | Transfer initiated within state, POS debit indicator, third-party transfer indicator, third-party agreement indicator, § 1005.14 applicability |
+| Provisional credit           | Alleged error amount, applicable interest, withheld amount, credit amount, credit date                                                         |
+| Investigation outcome        | Error determination, confirmed amount, corrected amount, determination date                                                                    |
+| Consumer notification        | Notification type, notification date, delivery channel                                                                                         |
+| Supporting documents         | Documents relied upon, consumer request date, documents provided date                                                                          |
+| Provisional credit debit     | Debit amount, debit date, notification date, five-business-day protection end date                                                             |
+| Reassertion                  | Original dispute ID, reassertion date, prior compliance indicator, documentation-request exception indicator                                   |
+
+## **11. Regulatory deadline and decision logic**
+
+The following decision flow consolidates the principal timing and provisional credit requirements.
+
+**Step 1 — Receive notice**
+
+Record oral or written notice and evaluate the identification, content, and applicable 60-day timing requirements.
+
+**Step 2 — Determine initial deadline**
+
+- Standard account: 10 business days.
+- Qualifying transfer within 30 days after first deposit: 20 business days.
+
+**Step 3 — Determine whether investigation can be completed**
+
+Yes
+
+Complete investigation and determine whether an error occurred within the applicable initial period.
+
+No
+
+Institution may use the extended investigation period, subject to applicable provisional credit requirements.
+
+**Step 4 — Apply extended investigation period**
+
+- Standard: 45 days from notice receipt.
+- Qualifying transfer: 90 days from notice receipt.
+
+**Step 5 — Apply provisional credit requirements**
+
+- Credit alleged error amount, including applicable interest.
+- Apply permitted maximum $50 withholding only when all stated conditions are met.
+- Observe the applicable 10- or 20-business-day deadline.
+- Notify consumer within two business days after crediting.
+- Provide full use of funds during investigation.
+
+**Step 6 — Complete investigation**
+
+- Confirmed error: correct within one business day.
+- No error/different error: provide written explanation and document-request rights.
+
+**Step 7 — Communicate results**
+
+Report results within three business days after investigation completion.
+
+**Step 8 — If provisional credit is debited**
+
+Notify consumer of date and amount, and provide the required five-business-day payment protections.
+
+## **12. Recommended delivery priorities**
+
+For implementation planning, I recommend sequencing the backlog as follows:
+
+| Priority | User stories     | Delivery focus                                                                |
+| -------- | ---------------- | ----------------------------------------------------------------------------- |
+| P0       | US-001 to US-004 | Error classification, intake, notice eligibility, written confirmation        |
+| P0       | US-005 to US-009 | Deadline engine, investigation extensions, provisional credit                 |
+| P0       | US-010 to US-013 | Corrections, outcome notifications, credit finalization and debit protections |
+| P1       | US-014           | Reassertion handling                                                          |
+
+The priority assignments are proposed delivery recommendations, not regulatory classifications.
+
+## **13. Key business analyst clarification points**
+
+Before finalizing the functional specification and handing the backlog to engineering, I would resolve these implementation questions:
+
+1\. **Day-count conventions:** The regulation specifies business days for certain deadlines and days for the 45-/90-day investigation periods. The deadline engine must preserve these distinctions. The supplied text does not specify holiday-calendar or cutoff-time conventions.
+
+2\. **Initial versus extended investigation:** The 45-/90-day provisions are available when the institution cannot complete its investigation within the initial period. They are not a replacement for the initial investigation requirement.
+
+3\. **Provisional credit withholding:** The maximum $50 withholding is conditional on both a reasonable basis for believing an unauthorized transfer occurred and satisfaction of § 1005.6(a). It is not a universal deductible.
+
+4\. **Provisional credit exceptions:** The platform must distinguish the written-confirmation exception and Regulation T account exception from ordinary provisional credit processing.
+
+5\. **Different-error outcomes:** The institution must provide a written explanation and document-request rights when the investigation finds either no error or an error in a different manner or amount.
+
+6\. **Reassertion:** The exception relating to an error asserted following receipt of information under § 1005.11(a)(1)(vii) must remain distinguishable from ordinary reassertions.
+
+7\. **Scope exclusions:** Transfers covered by § 1005.14 are excluded from the own-records-only investigation provision in § 1005.11(c)(4). They should not be excluded from the entire Regulation E error resolution process based solely on this provision.
+
+**Deliverable summary**
+
+# **14**
+
+**User stories**
+
+# **7**
+
+**Implementation epics**
+
+# **1005.11(a)–(e)**
+
+**Regulatory coverage**
+
+All supplied subsections addressed
+
+The resulting backlog provides a foundation for a card and ACH disputes platform functional requirements document, engineering refinement, QA scenario development, and regulatory traceability.
+
+*Regulatory scope note: This is a requirements translation of the text supplied, not a legal opinion or independent validation of the current regulation.*

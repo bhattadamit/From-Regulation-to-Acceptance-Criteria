@@ -1,0 +1,283 @@
+### US-1: Error Classification and Intake Validation
+
+**As a** Disputes Intake Specialist,
+
+**I want** the platform to classify incoming consumer notices against Regulation E error definitions and validate required notice elements,
+
+**So that** covered electronic fund transfer (EFT) errors are routed into the Reg E resolution workflow while non-covered inquiries are excluded.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Regulation E Error Classification and Intake Validation
+
+  Scenario: Classify covered EFT error types into Reg E dispute workflow
+    Given a consumer submits an oral or written notice regarding an electronic fund transfer
+    When the notice alleges one of the following:
+      | Covered Error Category                                                                                       |
+      | Unauthorized electronic fund transfer                                                                        |
+      | Incorrect electronic fund transfer to or from the consumer's account                                         |
+      | Omission of an electronic fund transfer from a periodic statement                                            |
+      | Computational or bookkeeping error made by the financial institution relating to an EFT                      |
+      | Consumer's receipt of an incorrect amount of money from an electronic terminal                               |
+      | EFT not identified in accordance with § 1005.9 or § 1005.10(a)                                               |
+      | Request for § 1005.9 or § 1005.10(a) documentation or additional EFT information/clarification               |
+    Then the system classifies the case as a Regulation E covered error
+
+  Scenario: Exclude non-covered inquiries from Reg E dispute workflow
+    Given a consumer contacts the bank regarding their account
+    When the inquiry is solely one of the following:
+      | Non-Covered Inquiry Type                                        |
+      | Routine inquiry about the consumer's account balance            |
+      | Request for information for tax or other recordkeeping purposes |
+      | Request for duplicate copies of documentation                   |
+    Then the system does not classify the inquiry as a Regulation E error
+
+  Scenario: Validate required consumer notice contents for standard error claims
+    Given a consumer submits an oral or written notice of a covered error other than a documentation or clarification request
+    When the intake agent captures the notice
+    Then the system requires:
+      | Required Element                                                                    |
+      | Consumer's name and account number (or information enabling identification of both) |
+      | Reason why the consumer believes an error exists                                    |
+      | Type, date, and amount of the alleged error (captured to the extent possible)       |
+
+  Scenario: Validate required consumer notice contents for documentation or clarification requests
+    Given a consumer submits an oral or written request for § 1005.9/§ 1005.10(a) documentation or additional EFT clarification
+    When the intake agent captures the request
+    Then the system requires identification of the consumer's name and account number
+    And the system does not require the type, date, and amount of an error
+
+```
+
+---
+
+### US-2: Notice Timeliness and Written Confirmation Tracking
+
+**As a** Disputes Operations Analyst,
+
+**I want** the platform to evaluate the 60-day notice window and track optional 10-business-day written confirmation requirements,
+
+**So that** timely claims receive full Reg E protections and oral-notice confirmation rules are enforced accurately.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Notice Timeliness and Written Confirmation Tracking
+
+  Scenario: Evaluate 60-day timely notice window from periodic statement or passbook documentation
+    Given an alleged EFT error is first reflected on a periodic statement or passbook documentation required by § 1005.9
+    When the consumer's oral or written notice of error is received no later than 60 calendar days after the statement was sent or passbook documentation was provided
+    Then the system flags the error notice as timely under § 1005.11(b)(1)(i)
+
+  Scenario: Evaluate 60-day timely notice window following a documentation or clarification request
+    Given a consumer previously requested documentation or clarification under § 1005.11(a)(1)(vii)
+    And the institution sent the requested information
+    When the consumer submits a subsequent notice of error based on that information no later than 60 calendar days after the information was sent
+    Then the system flags the subsequent error notice as timely under § 1005.11(b)(3)
+
+  Scenario: Require written confirmation for an oral notice of error
+    Given a consumer submits an oral notice of error
+    And the institution elects to require written confirmation
+    When the oral notice is logged
+    Then the system prompts the agent to inform the consumer of the written confirmation requirement and provide the mailing/submission address during the oral notification
+    And the system starts a 10-business-day timer for receipt of written confirmation
+
+```
+
+---
+
+### US-3: Investigation SLA Calculation and Extensions
+
+**As a** Disputes Case Manager,
+
+**I want** the platform to automatically calculate standard and extended investigation deadlines based on transaction and account attributes,
+
+**So that** investigators complete determinations within mandatory Regulation E timeframes.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Investigation SLA Calculation and Extensions
+
+  Scenario: Set standard 10-business-day and 45-calendar-day investigation timelines
+    Given a timely notice of error is received
+    And the transaction did not occur within 30 days after the first deposit to the account
+    And the transaction was initiated within a state
+    And the transaction did not result from a point-of-sale debit card transaction
+    When the case is opened
+    Then the system sets the initial investigation and provisional credit deadline to 10 business days from receipt of the notice
+    And sets the extended investigation deadline to 45 calendar days from receipt of the notice
+
+  Scenario: Apply 20-business-day initial deadline for new accounts
+    Given a timely notice of error involves an EFT to or from the account within 30 calendar days after the first deposit to the account was made
+    When the case is opened
+    Then the system sets the initial investigation and provisional credit deadline to 20 business days from receipt of the notice (in place of 10 business days)
+
+  Scenario: Apply 90-calendar-day extended deadline for qualifying transactions
+    Given a timely notice of error is received
+    When the alleged error involves an EFT that meets at least one of the following conditions:
+      | Qualifying Extension Condition                                              |
+      | Was not initiated within a state                                            |
+      | Resulted from a point-of-sale debit card transaction                        |
+      | Occurred within 30 calendar days after the first deposit to the account     |
+    Then the system sets the extended investigation deadline to 90 calendar days from receipt of the notice (in place of 45 calendar days)
+
+  Scenario: Limit investigation scope to internal records for non-agreement third-party transfers
+    Given an alleged error concerns a transfer to or from a third party
+    And the transfer is not covered by § 1005.14
+    And no agreement exists between the institution and the third party for the type of EFT involved
+    When the investigator conducts the investigation
+    Then the system allows the investigator to complete the investigation based on a review of the institution's own records
+
+```
+
+---
+
+### US-4: Provisional Credit Calculation, Eligibility, and Notification
+
+**As a** Disputes Operations Specialist,
+
+**I want** the platform to manage provisional credit eligibility, optional $50 withholding, and consumer notifications,
+
+**So that** consumers receive timely access to disputed funds when investigations exceed the initial business-day window.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Provisional Credit Calculation, Eligibility, and Notification
+
+  Scenario: Issue full provisional credit when investigation extends past initial business-day window
+    Given an investigation is not completed within 10 business days (or 20 business days for new accounts)
+    And the account is not subject to Regulation T (12 CFR part 220)
+    And written confirmation was either not required or was received within 10 business days of an oral notice
+    When the 10-business-day (or 20-business-day) deadline arrives
+    Then the system posts a provisional credit for the full amount of the alleged error, including applicable interest
+    And grants the consumer full use of the credited funds during the investigation
+    And generates a notice to the consumer within 2 business days of crediting stating the amount and date of the provisional credit
+
+  Scenario: Withhold up to $50 on eligible unauthorized EFT claims
+    Given an investigation extends past the initial 10-business-day (or 20-business-day) window
+    And the institution has a reasonable basis for believing an unauthorized EFT occurred
+    And the institution has satisfied the requirements of § 1005.6(a)
+    When the system calculates the provisional credit
+    Then the system allows withholding a maximum of $50.00 from the provisional credit amount
+
+  Scenario: Suppress provisional credit when required written confirmation is not received
+    Given the institution required written confirmation within 10 business days of an oral notice of error
+    And the institution informed the consumer of the requirement and provided the address at the time of oral notice
+    When 10 business days elapse without receipt of written confirmation
+    Then the system suppresses provisional credit
+    And keeps the investigation active through the applicable 45-day or 90-day investigation period
+
+  Scenario: Suppress provisional credit for Regulation T accounts
+    Given the alleged error involves an account subject to Regulation T (12 CFR part 220)
+    When the investigation extends beyond 10 business days (or 20 business days)
+    Then the system suppresses provisional credit
+
+```
+
+---
+
+### US-5: Error Confirmed — Final Resolution, Correction, and Reporting
+
+**As a** Disputes Investigator,
+
+**I want** the platform to enforce 1-business-day error correction and 3-business-day consumer reporting deadlines when an error is confirmed,
+
+**So that** confirmed errors are remediated and communicated within statutory timeframes.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Final Resolution and Reporting When Error Occurred as Alleged
+
+  Scenario: Correct confirmed error within one business day
+    Given the investigator determines that an error occurred as alleged
+    When the determination date is recorded
+    Then the system sets a mandatory task to correct the error (or finalize an existing provisional credit, including applicable interest) within 1 business day of the determination date
+
+  Scenario: Report confirmed error results to consumer within three business days
+    Given the investigator completes the investigation and determines an error occurred
+    When the investigation completion date is recorded
+    Then the system generates and dispatches the investigation results notice to the consumer within 3 business days of completing the investigation
+    And includes notice that any provisional credit has been made final, if applicable
+
+```
+
+---
+
+### US-6: No Error or Different Error — Written Explanation, Document Rights, and Provisional Credit Reversal
+
+**As a** Disputes Investigator,
+
+**I want** the platform to generate a compliant written explanation and manage provisional credit reversal with 5-business-day overdraft protection,
+
+**So that** adverse or modified determinations meet all Regulation E notice and item-honoring obligations.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Adverse or Modified Determination and Provisional Credit Reversal
+
+  Scenario: Send written explanation and document request rights within three business days
+    Given the investigator completes the investigation
+    And determines either that no error occurred or that an error occurred in a manner or amount different from that described by the consumer
+    When the determination is recorded
+    Then the system generates a report of results within 3 business days of completing the investigation
+    And includes a written explanation of the institution's findings
+    And states the consumer's right to request copies of the documents relied upon in making the determination
+
+  Scenario: Fulfill consumer request for relied-upon documents
+    Given the consumer received a no-error or different-error determination notice
+    When the consumer requests copies of the documents the institution relied upon
+    Then the system logs a high-priority fulfillment task to promptly provide copies of those documents to the consumer
+
+  Scenario: Reverse provisional credit and notify consumer of debit and 5-business-day item-honoring window
+    Given the consumer previously received a provisional credit
+    And the investigation concludes that no error occurred (or an error occurred for a lesser amount)
+    When the institution debits the provisionally credited amount
+    Then the system sends a notice to the consumer stating:
+      | Required Reversal Notice Element                                                                                                                               |
+      | Date and amount of the debiting                                                                                                                                |
+      | Institution will honor checks, drafts, or similar instruments payable to third parties and preauthorized transfers for 5 business days after the notification   |
+      | Honored items during those 5 business days will not incur an overdraft charge resulting from the debit                                                         |
+
+  Scenario: Honor third-party items and preauthorized transfers without overdraft fees for five business days
+    Given a provisional credit reversal notice has been issued to the consumer
+    When a check, draft, similar instrument payable to a third party, or preauthorized transfer is presented within 5 business days after the notification
+    And the item would have been paid if the provisionally credited funds had not been debited
+    Then the system honors the item
+    And suppresses any overdraft charge resulting from the debiting of the provisional credit
+
+```
+
+---
+
+### US-7: Reassertion of Previously Resolved Error
+
+**As a** Disputes Intake Specialist,
+
+**I want** the platform to identify when a consumer reasserts a previously resolved error and check whether it follows a documentation/clarification request,
+
+**So that** duplicate claims are closed without redundant investigation unless triggered by newly provided § 1005.11(a)(1)(vii) records.
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Reassertion of Error
+
+  Scenario: Close reasserted error when prior investigation fully complied with § 1005.11
+    Given a consumer submits a notice of error for a transaction previously investigated and closed
+    And the audit log confirms the institution fully complied with all requirements of § 1005.11 during the prior resolution
+    And the prior case was not solely a request for documentation or clarification under § 1005.11(a)(1)(vii)
+    When the reasserted claim is evaluated
+    Then the system flags the claim as a reasserted error with no further institution responsibilities under § 1005.11
+
+  Scenario: Process error asserted after receipt of requested documentation or clarification
+    Given a consumer previously submitted a request for documentation or clarification under § 1005.11(a)(1)(vii)
+    And the institution provided the requested information
+    When the consumer asserts an error following receipt of that information within 60 days of the institution sending it
+    Then the system opens a full Regulation E error investigation under § 1005.11
+
+```

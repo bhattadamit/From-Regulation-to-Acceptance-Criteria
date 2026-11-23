@@ -1,0 +1,823 @@
+# **Business Requirements: Regulation CC Next-Day Availability — 12 CFR § 229.10**
+
+**Role:** Senior Business Analyst\
+**Business capability:** Deposit Hold Engine\
+**Regulatory scope:** 12 CFR § 229.10(a), (b), and (c)\
+**Objective:** Implement funds availability rules that determine the latest permissible withdrawal availability date for qualifying cash deposits, electronic payments, and specified check deposits.
+
+## **1. Business requirements and design principles**
+
+The deposit hold engine must:
+
+1. Identify the deposit type and applicable qualification criteria.
+2. Determine whether a deposit qualifies for next-business-day availability or second-business-day availability.
+3. Calculate the applicable availability deadline using the banking day on which the deposit or electronic payment is received.
+4. Apply the special $275 next-day availability provision to qualifying check deposits.
+5. Support different treatment for qualifying checks deposited in person and those not deposited in person.
+6. Enforce special deposit slip or envelope requirements where the bank requires them.
+7. Ensure electronic payments are not considered received until both required receipt conditions are satisfied.
+
+**Terminology**
+
+- **Banking day:** The day on which the depositary bank is considered open for substantially all of its banking activities.
+- **Business day:** Used as the regulatory measurement for the availability deadline.
+- **Availability deadline:** The latest business day by which funds must be available for withdrawal.
+
+The supplied regulatory text does not define banking day or business day. Their calendar determination is therefore treated as an existing dependency rather than an additional regulatory rule in these stories.
+
+# **2. Epic: Implement Regulation CC next-day availability**
+
+**Epic ID:** REGCC-22910
+
+As a depositary bank,\
+I want the deposit hold engine to identify deposits eligible for next-day or second-day availability under 12 CFR § 229.10,\
+So that funds are made available for withdrawal within the applicable regulatory timeframes.
+
+## **Feature 1: Cash deposit availability**
+
+### **US-001: Next-day availability for cash deposited in person**
+
+**Regulatory reference:** § 229.10(a)(1)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want cash deposited in person to an employee of the depositary bank to receive next-business-day availability,\
+So that qualifying cash deposits are available within the required timeframe.
+
+**Acceptance criteria**
+
+```
+Feature: Next-day availability for in-person cash deposits
+
+  Scenario: Cash deposited in person to a bank employee
+    Given a customer deposits cash into an account
+    And the deposit is made in person to an employee of the depositary bank
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine calculates the availability date
+    Then the funds must be available for withdrawal
+    No later than the business day after banking day "D"
+```
+
+### **US-002: Second-day availability for cash not deposited in person**
+
+**Regulatory reference:** § 229.10(a)(2)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want cash deposits not made in person to an employee of the depositary bank to receive second-business-day availability,\
+So that the engine applies the appropriate availability timeframe.
+
+**Acceptance criteria**
+
+```
+Feature: Second-business-day availability for non-in-person cash deposits
+
+  Scenario: Cash not deposited in person to a bank employee
+    Given a customer deposits cash into an account
+    And the deposit is not made in person to an employee of the depositary bank
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine calculates the availability date
+    Then the funds must be available for withdrawal
+    No later than the second business day after banking day "D"
+```
+
+## **Feature 2: Electronic payment availability**
+
+### **US-003: Next-day availability for electronic payments**
+
+**Regulatory reference:** § 229.10(b)(1)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want electronic payments received by the bank to be available for withdrawal by the next business day,\
+So that qualifying electronic payments receive the required availability treatment.
+
+**Acceptance criteria**
+
+```
+Feature: Next-business-day availability for electronic payments
+
+  Scenario: Electronic payment received by the bank
+    Given an electronic payment is received by the bank
+    And the payment is received on banking day "D"
+    When the deposit hold engine calculates the availability date
+    Then the funds must be available for withdrawal
+    No later than the business day after banking day "D"
+```
+
+### **US-004: Determine when an electronic payment is received**
+
+**Regulatory reference:** § 229.10(b)(2)(i) and (ii)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want the deposit hold engine to recognize an electronic payment as received only when both final collected funds and account credit information have been received,\
+So that the availability clock starts from the correct banking day.
+
+**Acceptance criteria**
+
+```
+Feature: Electronic payment receipt determination
+
+  Scenario: Both payment and account information received
+    Given the bank has received payment in actually and finally collected funds
+    And the bank has received information on the account and amount to be credited
+    When the deposit hold engine determines the electronic payment receipt status
+    Then the electronic payment must be considered received
+
+  Scenario: Payment received but account information not received
+    Given the bank has received payment in actually and finally collected funds
+    And the bank has not received information on the account and amount to be credited
+    When the deposit hold engine determines the electronic payment receipt status
+    Then the electronic payment must not be considered received
+
+  Scenario: Account information received but payment not received
+    Given the bank has received information on the account and amount to be credited
+    And the bank has not received payment in actually and finally collected funds
+    When the deposit hold engine determines the electronic payment receipt status
+    Then the electronic payment must not be considered received
+
+  Scenario: Payment received but not actually and finally collected
+    Given the bank has received information on the account and amount to be credited
+    And the bank has received payment that is not actually and finally collected
+    When the deposit hold engine determines the electronic payment receipt status
+    Then the electronic payment must not be considered received
+```
+
+### **US-005: Apply availability deadline from electronic payment receipt**
+
+**Regulatory reference:** § 229.10(b)(1) and (b)(2)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want the engine to calculate next-day availability from the banking day on which the bank receives the electronic payment,\
+So that the availability deadline is based on the regulatory definition of receipt.
+
+**Acceptance criteria**
+
+```
+Feature: Electronic payment availability calculation
+
+  Scenario: Electronic payment receipt conditions satisfied
+    Given the bank has received payment in actually and finally collected funds
+    And the bank has received information on the account and amount to be credited
+    And both conditions are satisfied on banking day "D"
+    When the deposit hold engine calculates the availability date
+    Then the funds must be available for withdrawal
+    No later than the business day after banking day "D"
+
+  Scenario: Electronic payment not yet received
+    Given the bank has not received payment in actually and finally collected funds
+    Or the bank has not received information on the account and amount to be credited
+    When the deposit hold engine evaluates the electronic payment
+    Then the payment must not be treated as received under this section
+```
+
+## **Feature 3: Certain check deposits — next-day availability**
+
+### **US-006: Next-day availability for U.S. Treasury checks**
+
+**Regulatory reference:** § 229.10(c)(1)(i)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want U.S. Treasury checks deposited into an account held by the check payee to receive next-business-day availability,\
+So that qualifying Treasury check deposits are processed within the required timeframe.
+
+**Acceptance criteria**
+
+```
+Feature: Next-day availability for U.S. Treasury checks
+
+  Scenario: U.S. Treasury check deposited into payee account
+    Given a check is drawn on the Treasury of the United States
+    And the account receiving the deposit is held by the payee of the check
+    And the check is deposited on banking day "D"
+    When the deposit hold engine evaluates the check
+    Then the deposit qualifies for next-business-day availability
+    And the funds must be available for withdrawal
+    No later than the business day after banking day "D"
+```
+
+### **US-007: Next-day availability for U.S. Postal Service money orders deposited in person**
+
+**Regulatory reference:** § 229.10(c)(1)(ii)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want qualifying U.S. Postal Service money orders deposited in person to receive next-business-day availability,\
+So that eligible money orders are processed within the required timeframe.
+
+**Acceptance criteria**
+
+```
+Feature: Next-day availability for U.S. Postal Service money orders
+
+  Scenario: Qualifying USPS money order deposited in person
+    Given the deposited instrument is a U.S. Postal Service money order
+    And the account is held by the payee of the money order
+    And the money order is deposited in person to an employee of the depositary bank
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine evaluates the deposit
+    Then the deposit qualifies for next-business-day availability
+    And the funds must be available for withdrawal
+    No later than the business day after banking day "D"
+```
+
+### **US-008: Next-day availability for Federal Reserve Bank and Federal Home Loan Bank checks**
+
+**Regulatory reference:** § 229.10(c)(1)(iii)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want qualifying Federal Reserve Bank and Federal Home Loan Bank checks deposited in person into a payee account to receive next-business-day availability,\
+So that these eligible checks receive the required treatment.
+
+**Acceptance criteria**
+
+```
+Feature: Next-day availability for Federal Reserve Bank and Federal Home Loan Bank checks
+
+  Scenario Outline: Qualifying federal bank check deposited in person
+    Given the check is drawn on a <Drawer>
+    And the account is held by the payee of the check
+    And the check is deposited in person to an employee of the depositary bank
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine evaluates the check
+    Then the deposit qualifies for next-business-day availability
+    And the funds must be available for withdrawal
+    No later than the business day after banking day "D"
+
+    Examples:
+      | Drawer                  |
+      | Federal Reserve Bank    |
+      | Federal Home Loan Bank  |
+```
+
+### **US-009: Next-day availability for state and local government checks**
+
+**Regulatory reference:** § 229.10(c)(1)(iv)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want qualifying state and local government checks deposited in person into a payee account to receive next-business-day availability,\
+So that eligible government checks are made available within the required timeframe.
+
+**Acceptance criteria**
+
+```
+Feature: Next-day availability for state and local government checks
+
+  Scenario: Qualifying government check deposited in person
+    Given the check is drawn by a state or unit of general local government
+    And the account is held by the payee of the check
+    And the depositary bank is located in the state that issued the check
+    Or the depositary bank is located in the same state as the issuing unit of general local government
+    And the check is deposited in person to an employee of the depositary bank
+    And any special deposit slip or deposit envelope required by the bank is used
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine evaluates the check
+    Then the deposit qualifies for next-business-day availability
+    And the funds must be available for withdrawal
+    No later than the business day after banking day "D"
+```
+
+### **US-010: Next-day availability for cashier's, certified, and teller's checks**
+
+**Regulatory reference:** § 229.10(c)(1)(v)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want qualifying cashier's, certified, and teller's checks deposited in person into a payee account to receive next-business-day availability,\
+So that eligible checks receive the required availability treatment.
+
+**Acceptance criteria**
+
+```
+Feature: Next-day availability for cashier's, certified, and teller's checks
+
+  Scenario Outline: Qualifying check deposited in person
+    Given the check is a <CheckType> check
+    And the account is held by the payee of the check
+    And the check is deposited in person to an employee of the depositary bank
+    And any special deposit slip or deposit envelope required by the bank is used
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine evaluates the check
+    Then the deposit qualifies for next-business-day availability
+    And the funds must be available for withdrawal
+    No later than the business day after banking day "D"
+
+    Examples:
+      | CheckType   |
+      | Cashier's   |
+      | Certified   |
+      | Teller's    |
+```
+
+### **US-011: Next-day availability for same-bank branch checks**
+
+**Regulatory reference:** § 229.10(c)(1)(vi)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want checks deposited at one branch and drawn on the same or another branch of the same bank in the same state or check processing region to receive next-business-day availability,\
+So that qualifying intra-bank checks are processed within the required timeframe.
+
+**Acceptance criteria**
+
+```
+Feature: Next-day availability for same-bank branch checks
+
+  Scenario: Check deposited and drawn at branches in the same state
+    Given a check is deposited at a branch of the depositary bank
+    And the check is drawn on the same or another branch of the same bank
+    And both branches are located in the same state
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine evaluates the check
+    Then the deposit qualifies for next-business-day availability
+    And the funds must be available for withdrawal
+    No later than the business day after banking day "D"
+
+  Scenario: Check deposited and drawn at branches in the same check processing region
+    Given a check is deposited at a branch of the depositary bank
+    And the check is drawn on the same or another branch of the same bank
+    And both branches are located in the same check processing region
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine evaluates the check
+    Then the deposit qualifies for next-business-day availability
+    And the funds must be available for withdrawal
+    No later than the business day after banking day "D"
+```
+
+## **Feature 4: $275 next-day availability for other check deposits**
+
+### **US-012: Apply the $275 next-day availability provision**
+
+**Regulatory reference:** § 229.10(c)(1)(vii)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want the engine to make the lesser of $275 or the aggregate amount of qualifying customer check deposits available by the next business day,\
+So that customers receive the next-day availability amount required by Regulation CC.
+
+**Acceptance criteria**
+
+```
+Feature: $275 next-day availability for qualifying check deposits
+
+  Scenario: Aggregate qualifying check deposits exceed $275
+    Given a customer makes check deposits on banking day "D"
+    And the deposits are not subject to next-day availability under
+        § 229.10(c)(1)(i) through (vi)
+    And the aggregate amount of those deposits exceeds $275
+    When the deposit hold engine calculates next-day availability
+    Then $275 must be available for withdrawal
+    No later than the business day after banking day "D"
+
+  Scenario: Aggregate qualifying check deposits equal $275
+    Given a customer makes check deposits on banking day "D"
+    And the deposits are not subject to next-day availability under
+        § 229.10(c)(1)(i) through (vi)
+    And the aggregate amount of those deposits equals $275
+    When the deposit hold engine calculates next-day availability
+    Then $275 must be available for withdrawal
+    No later than the business day after banking day "D"
+
+  Scenario: Aggregate qualifying check deposits are less than $275
+    Given a customer makes check deposits on banking day "D"
+    And the deposits are not subject to next-day availability under
+        § 229.10(c)(1)(i) through (vi)
+    And the aggregate amount of those deposits is less than $275
+    When the deposit hold engine calculates next-day availability
+    Then the entire aggregate amount must be available for withdrawal
+    No later than the business day after banking day "D"
+```
+
+### **US-013: Aggregate check deposits across all customer accounts**
+
+**Regulatory reference:** § 229.10(c)(1)(vii)(B)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want the engine to aggregate qualifying check deposits across all accounts belonging to the customer for a banking day,\
+So that the $275 next-day availability provision is applied using the required customer-level aggregate.
+
+**Acceptance criteria**
+
+```
+Feature: Customer-level aggregation for $275 next-day availability
+
+  Scenario: Qualifying check deposits across multiple accounts
+    Given a customer has multiple accounts
+    And the customer makes check deposits into multiple accounts on banking day "D"
+    And the checks are not subject to next-day availability under
+        § 229.10(c)(1)(i) through (vi)
+    When the deposit hold engine calculates the aggregate deposit amount
+    Then the engine must aggregate the check deposits across all accounts
+    belonging to the customer for banking day "D"
+    And the next-day availability amount must be the lesser of
+        $275 or the aggregate deposit amount
+```
+
+## **Feature 5: Second-day availability for qualifying checks not deposited in person**
+
+### **US-014: Second-day availability for qualifying USPS money orders**
+
+**Regulatory reference:** § 229.10(c)(2), referencing § 229.10(c)(1)(ii)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want qualifying U.S. Postal Service money orders not deposited in person to receive second-business-day availability,\
+So that the engine applies the required availability deadline.
+
+**Acceptance criteria**
+
+```
+Feature: Second-day availability for non-in-person USPS money orders
+
+  Scenario: Qualifying USPS money order not deposited in person
+    Given the check is a U.S. Postal Service money order
+    And the account is held by the payee of the money order
+    And the check is not deposited in person to an employee of the depositary bank
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine evaluates the deposit
+    Then the deposit qualifies for second-business-day availability
+    And the funds must be available for withdrawal
+    No later than the second business day after banking day "D"
+```
+
+### **US-015: Second-day availability for Federal Reserve Bank and Federal Home Loan Bank checks**
+
+**Regulatory reference:** § 229.10(c)(2), referencing § 229.10(c)(1)(iii)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want qualifying Federal Reserve Bank and Federal Home Loan Bank checks not deposited in person to receive second-business-day availability,\
+So that eligible checks receive the required treatment.
+
+**Acceptance criteria**
+
+```
+Feature: Second-day availability for non-in-person federal bank checks
+
+  Scenario Outline: Qualifying federal bank check not deposited in person
+    Given the check is drawn on a <Drawer>
+    And the account is held by the payee of the check
+    And the check is not deposited in person to an employee of the depositary bank
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine evaluates the check
+    Then the deposit qualifies for second-business-day availability
+    And the funds must be available for withdrawal
+    No later than the second business day after banking day "D"
+
+    Examples:
+      | Drawer                  |
+      | Federal Reserve Bank    |
+      | Federal Home Loan Bank  |
+```
+
+### **US-016: Second-day availability for state and local government checks**
+
+**Regulatory reference:** § 229.10(c)(2), referencing § 229.10(c)(1)(iv)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want qualifying state and local government checks not deposited in person to receive second-business-day availability,\
+So that the bank applies the correct availability deadline.
+
+**Acceptance criteria**
+
+```
+Feature: Second-day availability for non-in-person government checks
+
+  Scenario: Qualifying government check not deposited in person
+    Given the check is drawn by a state or unit of general local government
+    And the account is held by the payee of the check
+    And the depositary bank is located in the state that issued the check
+    Or the depositary bank is located in the same state as the issuing unit
+        of general local government
+    And the check is not deposited in person to an employee of the depositary bank
+    And any special deposit slip or deposit envelope required by the bank is used
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine evaluates the check
+    Then the deposit qualifies for second-business-day availability
+    And the funds must be available for withdrawal
+    No later than the second business day after banking day "D"
+```
+
+### **US-017: Second-day availability for cashier's, certified, and teller's checks**
+
+**Regulatory reference:** § 229.10(c)(2), referencing § 229.10(c)(1)(v)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want qualifying cashier's, certified, and teller's checks not deposited in person to receive second-business-day availability,\
+So that the engine applies the required availability timeframe.
+
+**Acceptance criteria**
+
+```
+Feature: Second-day availability for non-in-person cashier's,
+certified, and teller's checks
+
+  Scenario Outline: Qualifying check not deposited in person
+    Given the check is a <CheckType> check
+    And the account is held by the payee of the check
+    And the check is not deposited in person to an employee of the depositary bank
+    And any special deposit slip or deposit envelope required by the bank is used
+    And the deposit occurs on banking day "D"
+    When the deposit hold engine evaluates the check
+    Then the deposit qualifies for second-business-day availability
+    And the funds must be available for withdrawal
+    No later than the second business day after banking day "D"
+
+    Examples:
+      | CheckType   |
+      | Cashier's   |
+      | Certified   |
+      | Teller's    |
+```
+
+## **Feature 6: Special deposit slip and envelope requirements**
+
+### **US-018: Support bank-required special deposit slips or envelopes**
+
+**Regulatory reference:** § 229.10(c)(3)(i)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want the deposit hold engine to consider whether the bank requires a special deposit slip or deposit envelope for eligible government and official checks,\
+So that next-day availability eligibility is evaluated in accordance with the bank's established requirements.
+
+**Acceptance criteria**
+
+```
+Feature: Special deposit slip and envelope requirements
+
+  Scenario: Bank requires a special deposit slip for state or local government checks
+    Given the deposited check is a state or local government check
+    And the depositary bank requires a special deposit slip or deposit envelope
+    When the deposit hold engine evaluates next-day availability eligibility
+    Then the engine must recognize the special deposit slip or envelope requirement
+
+  Scenario: Bank requires a special deposit slip for cashier's, certified,
+            or teller's checks
+    Given the deposited check is a cashier's, certified, or teller's check
+    And the depositary bank requires a special deposit slip or deposit envelope
+    When the deposit hold engine evaluates next-day availability eligibility
+    Then the engine must recognize the special deposit slip or envelope requirement
+
+  Scenario: Bank does not require a special deposit slip or envelope
+    Given the deposited check is a state or local government check
+    Or the deposited check is a cashier's, certified, or teller's check
+    And the depositary bank does not require a special deposit slip or deposit envelope
+    When the deposit hold engine evaluates next-day availability eligibility
+    Then the special deposit slip or envelope requirement must not prevent eligibility
+```
+
+### **US-019: Provide or communicate access to special deposit slips**
+
+**Regulatory reference:** § 229.10(c)(3)(ii)
+
+**User story**
+
+As a deposit operations stakeholder,\
+I want customers to be provided with required special deposit slips or informed how to prepare or obtain them,\
+So that customers have reasonable access to the materials needed to qualify for the applicable availability treatment.
+
+**Acceptance criteria**
+
+```
+Feature: Customer access to special deposit slips and envelopes
+
+  Scenario: Bank requires a special deposit slip or envelope
+    Given the depositary bank requires a special deposit slip or deposit envelope
+    When the bank implements the special deposit slip requirement
+    Then the bank must provide the special deposit slip or envelope to customers
+    Or inform customers how the slip or envelope may be prepared or obtained
+    And the bank must make the slip or envelope reasonably available
+```
+
+# **3. Consolidated availability decision matrix**
+
+The following matrix provides a business-level view of the availability rules implemented by the stories.
+
+| Deposit type                         | Qualification conditions                                                                                              | Availability deadline |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| Cash                                 | Deposited in person to employee                                                                                       | Next business day     |
+| Cash                                 | Not deposited in person to employee                                                                                   | Second business day   |
+| Electronic payment                   | Payment actually and finally collected and account/amount information received                                        | Next business day     |
+| U.S. Treasury check                  | Account held by payee                                                                                                 | Next business day     |
+| USPS money order                     | Payee account; deposited in person                                                                                    | Next business day     |
+| USPS money order                     | Payee account; not deposited in person                                                                                | Second business day   |
+| Federal Reserve Bank check           | Payee account; deposited in person                                                                                    | Next business day     |
+| Federal Reserve Bank check           | Payee account; not deposited in person                                                                                | Second business day   |
+| Federal Home Loan Bank check         | Payee account; deposited in person                                                                                    | Next business day     |
+| Federal Home Loan Bank check         | Payee account; not deposited in person                                                                                | Second business day   |
+| State/local government check         | Payee account; qualifying same-state bank; deposited in person; required special slip/envelope used if applicable     | Next business day     |
+| State/local government check         | Payee account; qualifying same-state bank; not deposited in person; required special slip/envelope used if applicable | Second business day   |
+| Cashier's, certified, teller's check | Payee account; deposited in person; required special slip/envelope used if applicable                                 | Next business day     |
+| Cashier's, certified, teller's check | Payee account; not deposited in person; required special slip/envelope used if applicable                             | Second business day   |
+| Same-bank branch check               | Same or another branch; both branches in same state or same check processing region                                   | Next business day     |
+| Other qualifying checks              | Lesser of $275 or aggregate customer check deposits not subject to (c)(1)(i)–(vi)                                     | Next business day     |
+
+# **4. Suggested deposit hold engine decision logic**
+
+The following is a proposed implementation sequence derived from the supplied regulatory text.
+
+```
+
+INPUT:
+  Deposit type
+  Deposit amount
+  Customer identifier
+  Account identifier
+  Banking day
+  In-person deposit indicator
+  Deposit made to bank employee indicator
+  Check drawer/type
+  Payee account indicator
+  Depositary bank state
+  Issuing government state
+  Depositing branch
+  Drawee branch
+  Branch state
+  Check processing region
+  Special deposit slip/envelope required indicator
+  Special deposit slip/envelope satisfied indicator
+  Electronic payment final collection indicator
+  Electronic payment account information indicator
+
+PROCESS:
+
+1. IF deposit type = CASH:
+     IF deposited in person to bank employee:
+         Availability = Next business day
+     ELSE:
+         Availability = Second business day
+
+2. ELSE IF deposit type = ELECTRONIC PAYMENT:
+     IF actually and finally collected funds received
+        AND account and amount information received:
+         Receipt day = Banking day of receipt
+         Availability = Next business day after receipt day
+     ELSE:
+         Electronic payment not yet received
+
+3. ELSE IF deposit type = CHECK:
+
+     Evaluate § 229.10(c)(1)(i) through (vi):
+
+     IF U.S. Treasury check
+        AND account held by payee:
+         Availability = Next business day
+
+     ELSE IF USPS money order
+        AND account held by payee:
+         IF deposited in person to bank employee:
+             Availability = Next business day
+         ELSE:
+             Availability = Second business day
+
+     ELSE IF Federal Reserve Bank or Federal Home Loan Bank check
+        AND account held by payee:
+         IF deposited in person to bank employee:
+             Availability = Next business day
+         ELSE:
+             Availability = Second business day
+
+     ELSE IF state or local government check
+        AND account held by payee
+        AND depositary bank located in qualifying state:
+         IF special deposit slip/envelope required:
+             Evaluate whether requirement is satisfied
+         IF deposited in person to bank employee:
+             Availability = Next business day
+         ELSE:
+             Availability = Second business day
+
+     ELSE IF cashier's, certified, or teller's check
+        AND account held by payee:
+         IF special deposit slip/envelope required:
+             Evaluate whether requirement is satisfied
+         IF deposited in person to bank employee:
+             Availability = Next business day
+         ELSE:
+             Availability = Second business day
+
+     ELSE IF check deposited at a branch of the depositary bank
+        AND drawn on same or another branch of the same bank
+        AND both branches are in same state OR same check processing region:
+         Availability = Next business day
+
+     ELSE:
+         Calculate aggregate qualifying customer check deposits
+         across all customer accounts for the banking day.
+
+         Next-day availability amount =
+             MIN($275, aggregate qualifying check deposits)
+
+OUTPUT:
+  Applicable availability deadline
+  Amount subject to next-day availability
+  Remaining deposit amount, if applicable
+
+```
+
+# **5. Business analysis: Key implementation considerations**
+
+These considerations are important for translating the stories into an executable hold engine. They are not additional regulatory acceptance criteria beyond the supplied text.
+
+| Area                       | Implementation consideration                                                                                                                                    |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Banking day calculation    | Use the bank's established banking-day calendar to identify the deposit/receipt banking day.                                                                    |
+| Business day calculation   | Use the bank's established business-day calendar to calculate the next or second business day.                                                                  |
+| Customer aggregation       | Ensure deposits across all accounts belonging to the customer are included in the $275 calculation.                                                             |
+| Check classification       | Maintain reliable instrument classification for Treasury, USPS, Federal Reserve, Federal Home Loan Bank, government, cashier's, certified, and teller's checks. |
+| Payee verification         | Capture whether the receiving account is held by the payee where required.                                                                                      |
+| In-person indicator        | Distinguish a deposit made in person to an employee from other deposit channels.                                                                                |
+| State validation           | Compare the depositary bank's state with the issuing government's state.                                                                                        |
+| Branch validation          | Support both same-state and same-check-processing-region comparisons.                                                                                           |
+| Special deposit slip       | Maintain bank configuration indicating whether special slips or envelopes are required.                                                                         |
+| Electronic payment receipt | Capture both final collection status and account/amount information receipt.                                                                                    |
+| Partial availability       | Support making the applicable $275 amount available while other funds remain subject to their separately applicable availability treatment.                     |
+
+## **6. Important regulatory interpretation and scope boundaries**
+
+The following distinctions should be preserved during implementation:
+
+1\. **U.S. Treasury checks:** The supplied text does not impose an in-person deposit requirement for next-day availability under § 229.10(c)(1)(i).
+
+2\. **Other specified official checks:** USPS money orders, Federal Reserve Bank checks, Federal Home Loan Bank checks, government checks, and cashier's/certified/teller's checks have specific in-person requirements for next-day availability. Section (c)(2) provides second-day availability when the specified qualifying checks are not deposited in person.
+
+3\. **Special deposit slips:** The bank may require special slips or envelopes for state/local government checks and cashier's, certified, or teller's checks. If required, the bank must provide them or explain how customers can prepare or obtain them and make them reasonably available.
+
+4\. **$275 aggregation:** The calculation is customer-level, not account-level, and includes checks deposited into all accounts of the customer on any one banking day, provided those checks are not subject to next-day availability under paragraphs (c)(1)(i) through (vi).
+
+5\. **Electronic payment receipt:** Both conditions must be met. Receipt of account information alone, or payment that has not actually and finally been collected, is insufficient.
+
+6\. **Scope limitation:** These stories implement only the supplied text of § 229.10. They do not attempt to implement other Regulation CC provisions, exceptions, or hold extensions.
+
+# **7. Recommended QA coverage**
+
+The following test areas should be included in system integration and user acceptance testing.
+
+| Test ID | Test condition                                                  | Expected result                              |
+| ------- | --------------------------------------------------------------- | -------------------------------------------- |
+| QA-001  | Cash deposited in person                                        | Next-business-day availability               |
+| QA-002  | Cash deposited through a non-in-person channel                  | Second-business-day availability             |
+| QA-003  | Electronic payment with both receipt conditions met             | Next-business-day availability               |
+| QA-004  | Electronic payment missing final collection                     | Not considered received                      |
+| QA-005  | Electronic payment missing account information                  | Not considered received                      |
+| QA-006  | Treasury check deposited to payee account                       | Next-business-day availability               |
+| QA-007  | USPS money order deposited in person                            | Next-business-day availability               |
+| QA-008  | USPS money order not deposited in person                        | Second-business-day availability             |
+| QA-009  | Federal Reserve Bank check deposited in person                  | Next-business-day availability               |
+| QA-010  | Federal Home Loan Bank check not deposited in person            | Second-business-day availability             |
+| QA-011  | Qualifying government check deposited in person                 | Next-business-day availability               |
+| QA-012  | Qualifying government check not deposited in person             | Second-business-day availability             |
+| QA-013  | Cashier's check deposited in person                             | Next-business-day availability               |
+| QA-014  | Certified check not deposited in person                         | Second-business-day availability             |
+| QA-015  | Teller's check deposited in person                              | Next-business-day availability               |
+| QA-016  | Same-bank branches in same state                                | Next-business-day availability               |
+| QA-017  | Same-bank branches in same processing region                    | Next-business-day availability               |
+| QA-018  | Aggregate qualifying checks below $275                          | Entire aggregate available next business day |
+| QA-019  | Aggregate qualifying checks equal $275                          | $275 available next business day             |
+| QA-020  | Aggregate qualifying checks above $275                          | $275 available next business day             |
+| QA-021  | Qualifying checks distributed across multiple customer accounts | Aggregate across all customer accounts       |
+| QA-022  | Special slip required and used                                  | Special slip requirement satisfied           |
+| QA-023  | Special slip not required                                       | No special slip prerequisite                 |
+
+## **8. Definition of Done**
+
+The epic can be considered complete when:
+
+- All 19 user stories have been implemented and validated.
+- The engine correctly identifies the deposit categories and qualifying conditions.
+- Next-business-day and second-business-day deadlines are calculated correctly.
+- Electronic payment receipt follows both regulatory conditions.
+- The $275 amount is aggregated across all customer accounts for the applicable banking day.
+- Special deposit slip and envelope requirements are supported.
+- Positive and negative acceptance scenarios pass QA.
+- UAT confirms the resulting availability dates and amounts for representative deposit scenarios.
+- The implementation is traceable to the corresponding paragraphs of 12 CFR § 229.10.
+
+**Business analyst recommendation:** Treat the $275 provision as a separate availability allocation capability rather than a standalone deposit classification. This will allow the engine to aggregate eligible check deposits across accounts and allocate the required next-day amount without incorrectly applying the $275 threshold independently to each deposit or account.

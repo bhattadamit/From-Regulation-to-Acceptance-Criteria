@@ -1,0 +1,325 @@
+### Story 1: Cash Deposit Availability
+
+**As a** Deposit Operations Compliance Officer
+
+**I want** the deposit hold engine to assign availability dates to cash deposits based on whether the deposit was made in person to a bank employee
+
+**So that** customers receive next-day or second-business-day access to cash funds in compliance with 12 CFR 229.10(a).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Cash Deposit Funds Availability (12 CFR 229.10(a))
+
+  Scenario: Cash deposit made in person to a bank employee
+    Given a cash deposit is received on a banking day
+    And the deposit is made in person to an employee of the depositary bank
+    When the deposit hold engine evaluates the transaction
+    Then the funds shall be made available for withdrawal not later than the 1st business day after the banking day of deposit
+
+  Scenario: Cash deposit not made in person to a bank employee
+    Given a cash deposit is received on a banking day
+    And the deposit is not made in person to an employee of the depositary bank
+    When the deposit hold engine evaluates the transaction
+    Then the funds shall be made available for withdrawal not later than the 2nd business day after the banking day of deposit
+
+```
+
+---
+
+### Story 2: Electronic Payment Availability
+
+**As a** Deposit Operations Compliance Officer
+
+**I want** the deposit hold engine to determine receipt of electronic payments based on collected funds and credit instructions and assign next-day availability
+
+**So that** electronic deposits are made available on time under 12 CFR 229.10(b).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Electronic Payment Funds Availability (12 CFR 229.10(b))
+
+  Scenario: Electronic payment received with collected funds and credit information
+    Given an electronic payment is initiated for deposit into an account
+    And the bank has received payment in actually and finally collected funds
+    And the bank has received information on the account and amount to be credited
+    When the deposit hold engine records the banking day of receipt
+    Then the collected funds shall be made available for withdrawal not later than the 1st business day after the banking day of receipt
+
+  Scenario: Electronic payment with partial or uncollected funds
+    Given an electronic payment is initiated for deposit into an account
+    And the bank has received information on the account and amount to be credited
+    And only a portion of the payment is in actually and finally collected funds
+    When the deposit hold engine evaluates the payment
+    Then the bank shall treat the payment as received only to the extent of the actually and finally collected funds
+    And only that collected portion shall be scheduled for availability not later than the 1st business day after the banking day of receipt
+
+```
+
+---
+
+### Story 3: U.S. Treasury Check Availability
+
+**As a** Deposit Operations Compliance Officer
+
+**I want** the deposit hold engine to assign next-day availability to U.S. Treasury checks deposited into a payee's account regardless of deposit channel
+
+**So that** Treasury check deposits comply with 12 CFR 229.10(c)(1)(i).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: U.S. Treasury Check Availability (12 CFR 229.10(c)(1)(i))
+
+  Scenario Outline: U.S. Treasury check deposited into a payee's account
+    Given a check drawn on the Treasury of the United States is deposited on a banking day
+    And the check is deposited into an account held by a payee of the check
+    And the deposit channel is "<channel>"
+    When the deposit hold engine evaluates the check deposit
+    Then the funds shall be made available for withdrawal not later than the 1st business day after the banking day of deposit
+
+    Examples:
+      | channel                          |
+      | In person to a bank employee     |
+      | Not in person to a bank employee |
+
+```
+
+---
+
+### Story 4: USPS Money Orders, Federal Reserve Bank, and Federal Home Loan Bank Checks
+
+**As a** Deposit Operations Compliance Officer
+
+**I want** the deposit hold engine to assign next-day availability for in-person deposits and second-business-day availability for non-in-person deposits of USPS money orders, Federal Reserve Bank checks, and Federal Home Loan Bank checks
+
+**So that** the bank complies with 12 CFR 229.10(c)(1)(ii)–(iii) and 229.10(c)(2).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: USPS Money Order, FRB, and FHLB Check Availability (12 CFR 229.10(c)(1)(ii)-(iii) & (c)(2))
+
+  Scenario Outline: Eligible check deposited in person to a bank employee
+    Given a "<instrument_type>" is deposited on a banking day
+    And the instrument is deposited into an account held by a payee of the instrument
+    And the deposit is made in person to an employee of the depositary bank
+    When the deposit hold engine evaluates the deposit
+    Then the funds shall be made available for withdrawal not later than the 1st business day after the banking day of deposit
+
+    Examples:
+      | instrument_type               |
+      | U.S. Postal Service money order |
+      | Federal Reserve Bank check      |
+      | Federal Home Loan Bank check    |
+
+  Scenario Outline: Eligible check not deposited in person to a bank employee
+    Given a "<instrument_type>" is deposited on a banking day
+    And the instrument is deposited into an account held by a payee of the instrument
+    And the deposit is not made in person to an employee of the depositary bank
+    When the deposit hold engine evaluates the deposit
+    Then the funds shall be made available for withdrawal not later than the 2nd business day after the banking day of deposit
+
+    Examples:
+      | instrument_type               |
+      | U.S. Postal Service money order |
+      | Federal Reserve Bank check      |
+      | Federal Home Loan Bank check    |
+
+```
+
+---
+
+### Story 5: State and Local Government Check Availability
+
+**As a** Deposit Operations Compliance Officer
+
+**I want** the deposit hold engine to enforce payee, state-location, deposit channel, and special deposit slip rules on state and local government checks
+
+**So that** availability dates comply with 12 CFR 229.10(c)(1)(iv), (c)(2), and (c)(3).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: State and Local Government Check Availability (12 CFR 229.10(c)(1)(iv), (c)(2), & (c)(3))
+
+  Scenario: State or local government check deposited in person meeting all requirements
+    Given a check drawn by a state or a unit of general local government is deposited on a banking day
+    And the check is deposited into an account held by a payee of the check
+    And the depositary bank is located in the state that issued the check or the same state as the issuing unit of general local government
+    And the deposit is made in person to an employee of the depositary bank
+    And any bank-required special deposit slip or deposit envelope identifying the check type is used
+    When the deposit hold engine evaluates the deposit
+    Then the funds shall be made available for withdrawal not later than the 1st business day after the banking day of deposit
+
+  Scenario: State or local government check not deposited in person meeting all other requirements
+    Given a check drawn by a state or a unit of general local government is deposited on a banking day
+    And the check is deposited into an account held by a payee of the check
+    And the depositary bank is located in the state that issued the check or the same state as the issuing unit of general local government
+    And the deposit is not made in person to an employee of the depositary bank
+    And any bank-required special deposit slip or deposit envelope identifying the check type is used
+    When the deposit hold engine evaluates the deposit
+    Then the funds shall be made available for withdrawal not later than the 2nd business day after the banking day of deposit
+
+  Scenario: State or local government check deposited without required special deposit slip
+    Given a check drawn by a state or a unit of general local government is deposited on a banking day
+    And the depositary bank requires a special deposit slip or deposit envelope for this check type
+    And the bank provides the slip/envelope or informs customers how to prepare/obtain it and makes it reasonably available
+    And the customer does not use the required special deposit slip or deposit envelope
+    When the deposit hold engine evaluates the deposit
+    Then the check shall not qualify for next-day availability under 12 CFR 229.10(c)(1)(iv) or second-day availability under 229.10(c)(2)
+
+```
+
+---
+
+### Story 6: Cashier's, Certified, and Teller's Check Availability
+
+**As a** Deposit Operations Compliance Officer
+
+**I want** the deposit hold engine to evaluate payee status, deposit channel, and special deposit slip usage for cashier's, certified, and teller's checks
+
+**So that** availability dates comply with 12 CFR 229.10(c)(1)(v), (c)(2), and (c)(3).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Cashier's, Certified, and Teller's Check Availability (12 CFR 229.10(c)(1)(v), (c)(2), & (c)(3))
+
+  Scenario Outline: Cashier's, certified, or teller's check deposited in person meeting all requirements
+    Given a "<check_type>" is deposited on a banking day
+    And the check is deposited into an account held by a payee of the check
+    And the deposit is made in person to an employee of the depositary bank
+    And any bank-required special deposit slip or deposit envelope identifying the check type is used
+    When the deposit hold engine evaluates the deposit
+    Then the funds shall be made available for withdrawal not later than the 1st business day after the banking day of deposit
+
+    Examples:
+      | check_type       |
+      | cashier's check  |
+      | certified check  |
+      | teller's check   |
+
+  Scenario Outline: Cashier's, certified, or teller's check not deposited in person meeting all other requirements
+    Given a "<check_type>" is deposited on a banking day
+    And the check is deposited into an account held by a payee of the check
+    And the deposit is not made in person to an employee of the depositary bank
+    And any bank-required special deposit slip or deposit envelope identifying the check type is used
+    When the deposit hold engine evaluates the deposit
+    Then the funds shall be made available for withdrawal not later than the 2nd business day after the banking day of deposit
+
+    Examples:
+      | check_type       |
+      | cashier's check  |
+      | certified check  |
+      | teller's check   |
+
+  Scenario: Cashier's, certified, or teller's check deposited without required special deposit slip
+    Given a cashier's, certified, or teller's check is deposited on a banking day
+    And the depositary bank requires a special deposit slip or deposit envelope for this check type
+    And the bank provides the slip/envelope or informs customers how to prepare/obtain it and makes it reasonably available
+    And the customer does not use the required special deposit slip or deposit envelope
+    When the deposit hold engine evaluates the deposit
+    Then the check shall not qualify for next-day availability under 12 CFR 229.10(c)(1)(v) or second-day availability under 229.10(c)(2)
+
+```
+
+---
+
+### Story 7: On-Us Check Availability (Same State or Check Processing Region)
+
+**As a** Deposit Operations Compliance Officer
+
+**I want** the deposit hold engine to grant next-day availability to checks drawn on our bank when both the depositary branch and drawee branch are in the same state or check processing region
+
+**So that** on-us check deposits comply with 12 CFR 229.10(c)(1)(vi).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: On-Us Check Availability (12 CFR 229.10(c)(1)(vi))
+
+  Scenario: On-us check deposited in a branch within the same state or check processing region
+    Given a check is deposited in a branch of the depositary bank on a banking day
+    And the check is drawn on the same branch or another branch of the same depositary bank
+    And both the depositary branch and the drawee branch are located in the same state or the same check processing region
+    When the deposit hold engine evaluates the deposit
+    Then the funds shall be made available for withdrawal not later than the 1st business day after the banking day of deposit
+
+  Scenario: On-us check where branches are not in the same state or check processing region
+    Given a check is deposited in a branch of the depositary bank on a banking day
+    And the check is drawn on another branch of the same depositary bank
+    And the two branches are neither in the same state nor in the same check processing region
+    When the deposit hold engine evaluates the deposit
+    Then the check shall not qualify for next-day availability under 12 CFR 229.10(c)(1)(vi)
+
+```
+
+---
+
+### Story 8: $275 Next-Day Availability Rule for Non-Qualifying Checks
+
+**As a** Deposit Operations Compliance Officer
+
+**I want** the deposit hold engine to aggregate all check deposits made by a customer across all their accounts on a single banking day that do not qualify for next-day availability under (c)(1)(i)–(vi) and make up to $275 available the next business day
+
+**So that** the customer receives the mandatory $275 next-day release required by 12 CFR 229.10(c)(1)(vii).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: $275 Next-Day Availability on Aggregate Non-Qualifying Checks (12 CFR 229.10(c)(1)(vii))
+
+  Scenario: Aggregate non-qualifying checks on a single banking day exceed $275
+    Given a customer deposits one or more checks across one or more of their accounts on a single banking day
+    And none of those checks qualify for next-day availability under 12 CFR 229.10(c)(1)(i) through (vi)
+    And the aggregate amount of those checks is greater than $275
+    When the deposit hold engine calculates next-day availability for that banking day
+    Then $275 of the aggregate check deposits shall be made available for withdrawal not later than the 1st business day after the banking day of deposit
+
+  Scenario: Aggregate non-qualifying checks on a single banking day are $275 or less
+    Given a customer deposits one or more checks across one or more of their accounts on a single banking day
+    And none of those checks qualify for next-day availability under 12 CFR 229.10(c)(1)(i) through (vi)
+    And the aggregate amount of those checks is $275 or less (for example, $180)
+    When the deposit hold engine calculates next-day availability for that banking day
+    Then the entire aggregate amount ($180) shall be made available for withdrawal not later than the 1st business day after the banking day of deposit
+
+  Scenario: Customer deposits both qualifying next-day checks and non-qualifying checks on the same banking day
+    Given a customer deposits a $1,000 U.S. Treasury check into a payee account on a banking day
+    And the customer also deposits a $500 check not subject to next-day availability under 12 CFR 229.10(c)(1)(i) through (vi) on the same banking day
+    When the deposit hold engine calculates next-day availability for that banking day
+    Then the full $1,000 from the Treasury check shall be made available not later than the 1st business day after the banking day of deposit
+    And an additional $275 from the non-qualifying check shall be made available not later than the 1st business day after the banking day of deposit
+
+```
+
+---
+
+### Story 9: Special Deposit Slip Configuration and Customer Notice Controls
+
+**As a** Deposit Product Manager
+
+**I want** the deposit hold engine and channel systems to enforce special deposit slip/envelope rules only when the bank provides or informs customers how to obtain/prepare them and makes them reasonably available
+
+**So that** the bank satisfies the prerequisite conditions of 12 CFR 229.10(c)(3).
+
+#### Acceptance Criteria
+
+```gherkin
+Feature: Special Deposit Slip Prerequisite Enforcement (12 CFR 229.10(c)(3))
+
+  Scenario: Bank enforces special deposit slip requirement with customer availability controls active
+    Given the bank configures a special deposit slip or deposit envelope requirement for state/local government checks or cashier's/certified/teller's checks
+    And the slip or envelope identifies the type of check
+    And the bank either provides the slip/envelope to customers or informs customers how it may be prepared or obtained and makes it reasonably available
+    When a customer deposits an applicable check without using the special deposit slip or deposit envelope
+    Then the deposit hold engine shall treat the special deposit slip condition as unmet
+
+  Scenario: Bank has not satisfied special deposit slip availability or notice prerequisites
+    Given a customer deposits a state/local government check or cashier's/certified/teller's check meeting all other criteria of 12 CFR 229.10(c)(1)(iv) or (v)
+    And the bank either does not provide the special deposit slip/envelope or has not informed customers how to prepare/obtain it and made it reasonably available
+    When the deposit hold engine evaluates the deposit without a special deposit slip
+    Then the engine shall not deny next-day or second-day availability on the basis of a missing special deposit slip
+
+```

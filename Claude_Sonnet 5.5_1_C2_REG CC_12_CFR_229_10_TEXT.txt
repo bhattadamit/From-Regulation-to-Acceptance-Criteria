@@ -1,0 +1,403 @@
+# Regulation CC Next-Day Availability (12 CFR 229.10): User Stories and Acceptance Criteria
+
+## Scope and assumptions
+
+- Acceptance criteria are based **only** on the § 229.10 text you provided. Anything not in that text is listed under "Gaps and questions" below.
+- "Business day" and "banking day" are not defined in the provided text. The criteria assume a **calendar service** that maps a banking day D to "next business day" (D+1 business day) and "second business day" (D+2 business days).
+- "Not later than" sets a **maximum** hold. The engine computes a **latest permitted availability date**, and the bank may make funds available sooner.
+
+```gherkin
+Background:
+  Given the deposit hold engine receives a deposit event with
+    | deposit_type | channel | payee_match | amount | banking_day |
+  And a calendar service resolves "next business day" and "second business day" after a banking day
+```
+
+---
+
+## Epic 1: Cash deposits (§ 229.10(a))
+
+### US-1.1: Cash deposited in person
+**As a** deposit operations manager, **I want** cash deposits made in person to an employee to be available by the next business day, **so that** we comply with § 229.10(a)(1).
+
+```gherkin
+Scenario: In-person cash deposit to a bank employee
+  Given a cash deposit of $1,000 is made in person to an employee of the depositary bank
+  And the banking day of deposit is D
+  When the hold engine calculates availability
+  Then the latest permitted availability date is the business day after D
+  And the full $1,000 is scheduled as available for withdrawal by that date
+
+Scenario: Cash deposit amount is not capped
+  Given an in-person cash deposit of $250,000
+  When the hold engine calculates availability
+  Then the full amount is scheduled for availability by the business day after D
+  And no portion is held beyond that date under this rule
+```
+
+### US-1.2: Cash deposited not in person
+**As a** deposit operations manager, **I want** cash deposits not made in person to an employee to be available by the second business day, **so that** we comply with § 229.10(a)(2).
+
+```gherkin
+Scenario: Cash deposit not made in person to an employee
+  Given a cash deposit of $500 is made by a channel other than in person to an employee of the depositary bank
+  And the banking day of deposit is D
+  When the hold engine calculates availability
+  Then the latest permitted availability date is the second business day after D
+
+Scenario Outline: Cash deposit timing by in-person indicator
+  Given a cash deposit with in_person_to_employee = "<in_person>"
+  When the hold engine calculates availability
+  Then the latest permitted availability date is the "<deadline>" after the banking day of deposit
+
+  Examples:
+    | in_person | deadline                |
+    | true      | next business day       |
+    | false     | second business day     |
+```
+
+---
+
+## Epic 2: Electronic payments (§ 229.10(b))
+
+### US-2.1: Next-day availability for electronic payments
+**As a** deposit operations manager, **I want** electronic payments to be available by the business day after the banking day on which the bank *received* the payment, **so that** we comply with § 229.10(b)(1).
+
+```gherkin
+Scenario: Electronic payment received
+  Given an electronic payment for $2,000 is received on banking day R
+  When the hold engine calculates availability
+  Then the latest permitted availability date is the business day after R
+```
+
+### US-2.2: Determining when an electronic payment is "received"
+**As a** payments analyst, **I want** the engine to treat an electronic payment as received only when both funds and account information have arrived, **so that** the availability clock starts correctly per § 229.10(b)(2).
+
+```gherkin
+Scenario: Both conditions satisfied
+  Given the bank has received payment in actually and finally collected funds
+  And the bank has received information on the account and amount to be credited
+  When the hold engine evaluates the payment
+  Then the payment is marked "received"
+  And the receipt banking day is the banking day on which the later of the two conditions was met
+
+Scenario: Account and amount information missing
+  Given the bank has received payment in actually and finally collected funds
+  But the bank has not received information on the account and amount to be credited
+  When the hold engine evaluates the payment
+  Then the payment is not marked "received"
+  And no availability clock is started
+
+Scenario: Funds not yet actually and finally collected
+  Given the bank has received information on the account and amount to be credited
+  But the bank has not received payment in actually and finally collected funds
+  When the hold engine evaluates the payment
+  Then the payment is not marked "received"
+  And no availability clock is started
+
+Scenario: Payment received only in part
+  Given account and amount information has been received for $1,000
+  And payment in actually and finally collected funds has been received for $600
+  When the hold engine evaluates the payment
+  Then the bank is treated as having received an electronic payment of $600 only
+  And the next-business-day availability clock applies to $600
+  And the remaining $400 has no clock under this rule until collected funds are received
+```
+
+---
+
+## Epic 3: Check deposits eligible for next-day availability (§ 229.10(c)(1))
+
+For the in-person and special-slip conditions below, the engine needs deposit attributes: `payee_account_holder`, `in_person_to_employee`, `special_slip_used`, `bank_requires_special_slip`, `depositor_state`, and so on.
+
+### US-3.1: U.S. Treasury checks
+**As a** deposit operations manager, **I want** Treasury checks deposited by a payee to be available next business day, **so that** we comply with § 229.10(c)(1)(i).
+
+```gherkin
+Scenario: Treasury check deposited to payee's account
+  Given a check drawn on the Treasury of the United States
+  And it is deposited in an account held by a payee of the check
+  When the hold engine classifies the check
+  Then the latest permitted availability date is the business day after the banking day of deposit
+
+Scenario: Treasury check deposited to an account not held by a payee
+  Given a check drawn on the Treasury of the United States
+  And it is deposited in an account not held by a payee of the check
+  When the hold engine classifies the check
+  Then the check does not qualify under § 229.10(c)(1)(i)
+```
+
+### US-3.2: U.S. Postal Service money orders
+**As a** deposit operations manager, **I want** USPS money orders deposited in person by a payee to be available next business day, **so that** we comply with § 229.10(c)(1)(ii).
+
+```gherkin
+Scenario: USPS money order meeting all conditions
+  Given a U.S. Postal Service money order
+  And it is deposited in an account held by a payee
+  And it is deposited in person to an employee of the depositary bank
+  When the hold engine classifies the check
+  Then the latest permitted availability date is the business day after the banking day of deposit
+
+Scenario Outline: USPS money order failing a condition
+  Given a U.S. Postal Service money order
+  And deposited by payee account holder = "<payee>"
+  And deposited in person to an employee = "<in_person>"
+  When the hold engine classifies the check
+  Then the check "<result>" under § 229.10(c)(1)(ii)
+
+  Examples:
+    | payee | in_person | result                                   |
+    | true  | true      | qualifies for next business day          |
+    | false | true      | does not qualify                         |
+    | true  | false     | qualifies for second business day (c)(2) |
+    | false | false     | does not qualify                         |
+```
+
+### US-3.3: Federal Reserve Bank and Federal Home Loan Bank checks
+**As a** deposit operations manager, **I want** these checks to be available next business day when deposited in person by a payee, **so that** we comply with § 229.10(c)(1)(iii).
+
+```gherkin
+Scenario Outline: Federal Reserve Bank or Federal Home Loan Bank check
+  Given a check drawn on a "<drawee>"
+  And deposited by payee account holder = "<payee>"
+  And deposited in person to an employee = "<in_person>"
+  When the hold engine classifies the check
+  Then the result is "<result>"
+
+  Examples:
+    | drawee                    | payee | in_person | result                                   |
+    | Federal Reserve Bank      | true  | true      | next business day                        |
+    | Federal Home Loan Bank    | true  | true      | next business day                        |
+    | Federal Reserve Bank      | true  | false     | second business day (c)(2)               |
+    | Federal Home Loan Bank    | true  | false     | second business day (c)(2)               |
+    | Federal Reserve Bank      | false | true      | does not qualify under (c)(1)(iii)       |
+```
+
+### US-3.4: State and local government checks
+**As a** deposit operations manager, **I want** state and local government checks to be available next business day only when all four conditions are met, **so that** we comply with § 229.10(c)(1)(iv).
+
+```gherkin
+Scenario: State or local government check meeting all conditions
+  Given a check drawn by a state or a unit of general local government
+  And it is deposited in an account held by a payee
+  And the depositary bank is located in the state that issued the check, or the same state as the issuing unit of general local government
+  And it is deposited in person to an employee of the depositary bank
+  And the bank does not require a special deposit slip or envelope
+  When the hold engine classifies the check
+  Then the latest permitted availability date is the business day after the banking day of deposit
+
+Scenario: Bank requires a special slip and customer used it
+  Given a qualifying state or local government check meeting conditions (A) through (C)
+  And the bank requires a special deposit slip or envelope under § 229.10(c)(3)
+  And the customer used the required slip or envelope
+  When the hold engine classifies the check
+  Then the latest permitted availability date is the business day after the banking day of deposit
+
+Scenario: Bank requires a special slip and customer did not use it
+  Given a state or local government check meeting conditions (A) through (C)
+  And the bank requires a special deposit slip or envelope under § 229.10(c)(3)
+  And the customer did not use the required slip or envelope
+  When the hold engine classifies the check
+  Then the check does not qualify for next-business-day availability under § 229.10(c)(1)(iv)
+
+Scenario: Depositary bank located in a different state than the issuer
+  Given a check drawn by the State of Texas
+  And the depositary bank is located in Oklahoma
+  When the hold engine classifies the check
+  Then the check does not qualify under § 229.10(c)(1)(iv)
+
+Scenario: Local government check and bank location
+  Given a check drawn by a unit of general local government located in state S
+  And the depositary bank is located in state S
+  And all other conditions are met
+  Then the check qualifies for next-business-day availability under § 229.10(c)(1)(iv)
+```
+
+### US-3.5: Cashier's, certified, and teller's checks
+**As a** deposit operations manager, **I want** cashier's, certified, and teller's checks to be available next business day when all conditions are met, **so that** we comply with § 229.10(c)(1)(v).
+
+```gherkin
+Scenario Outline: Cashier's, certified, or teller's check
+  Given a "<check_type>" check
+  And deposited by payee account holder = "<payee>"
+  And deposited in person to an employee = "<in_person>"
+  And the bank requires a special slip = "<slip_required>"
+  And the special slip or envelope was used = "<slip_used>"
+  When the hold engine classifies the check
+  Then the result is "<result>"
+
+  Examples:
+    | check_type  | payee | in_person | slip_required | slip_used | result                       |
+    | cashier's   | true  | true      | false         | n/a       | next business day            |
+    | certified   | true  | true      | true          | true      | next business day            |
+    | teller's    | true  | true      | true          | false     | does not qualify (c)(1)(v)   |
+    | cashier's   | false | true      | false         | n/a       | does not qualify (c)(1)(v)   |
+```
+
+### US-3.6: Checks drawn on the same bank (intra-bank)
+**As a** deposit operations manager, **I want** checks deposited at one branch and drawn on the same or another branch of our bank to be available next business day when branch location conditions are met, **so that** we comply with § 229.10(c)(1)(vi).
+
+```gherkin
+Scenario: Same branch
+  Given a check deposited in a branch of the depositary bank
+  And drawn on the same branch
+  And both branches are located in the same state or the same check processing region
+  When the hold engine classifies the check
+  Then the latest permitted availability date is the business day after the banking day of deposit
+
+Scenario: Different branches in the same state
+  Given a check deposited in a branch of the depositary bank
+  And drawn on another branch of the same bank
+  And both branches are located in the same state
+  When the hold engine classifies the check
+  Then the check qualifies for next-business-day availability
+
+Scenario: Different branches in the same check processing region but different states
+  Given a check deposited in a branch of the depositary bank
+  And drawn on another branch of the same bank
+  And the branches are in different states but the same check processing region
+  When the hold engine classifies the check
+  Then the check qualifies for next-business-day availability
+
+Scenario: Different branches in different states and different regions
+  Given the two branches are in different states and different check processing regions
+  When the hold engine classifies the check
+  Then the check does not qualify under § 229.10(c)(1)(vi)
+```
+
+### US-3.7: Minimum next-day amount for other checks
+**As a** deposit operations manager, **I want** the lesser of $275 or the day's aggregate non-qualifying check deposits to be available next business day, **so that** we comply with § 229.10(c)(1)(vii).
+
+```gherkin
+Scenario: Aggregate exceeds $275
+  Given on banking day D a customer deposits checks to all of the customer's accounts
+  And checks totaling $1,000 are not subject to next-day availability under (c)(1)(i) through (vi)
+  When the hold engine calculates availability
+  Then $275 is scheduled for availability by the business day after D
+
+Scenario: Aggregate is below $275
+  Given the aggregate of such checks deposited on D to all accounts of the customer is $120
+  When the hold engine calculates availability
+  Then $120 is scheduled for availability by the business day after D
+
+Scenario: Aggregate across multiple accounts
+  Given a customer deposits $200 of such checks to account A and $300 to account B on banking day D
+  When the hold engine calculates availability
+  Then the aggregate considered is $500
+  And a total of $275 is made available next business day across the customer's accounts
+
+Scenario: Checks qualifying under (c)(1)(i) through (vi) are excluded from the aggregate
+  Given a customer deposits a qualifying Treasury check of $900 and a non-qualifying check of $100 on banking day D
+  When the hold engine calculates availability
+  Then the Treasury check is available next business day under (c)(1)(i)
+  And the aggregate for the (c)(1)(vii) rule is $100 only
+```
+
+---
+
+## Epic 4: Checks not deposited in person (§ 229.10(c)(2))
+
+### US-4.1: Second-business-day availability for non-in-person deposits
+**As a** deposit operations manager, **I want** checks that meet all requirements of (c)(1)(ii) through (v) except in-person deposit to be available by the second business day, **so that** we comply with § 229.10(c)(2).
+
+```gherkin
+Scenario Outline: Check meets (c)(1)(ii)-(v) except in-person deposit
+  Given a check of type "<check_type>" that meets every other requirement of its paragraph
+  And it is not deposited in person to an employee of the depositary bank
+  When the hold engine calculates availability
+  Then the latest permitted availability date is the second business day after the banking day of deposit
+
+  Examples:
+    | check_type                               |
+    | U.S. Postal Service money order          |
+    | Federal Reserve Bank / FHLB check        |
+    | State or local government check          |
+    | Cashier's, certified, or teller's check  |
+
+Scenario: Non-in-person deposit that also fails another requirement
+  Given a cashier's check deposited not in person
+  And deposited in an account not held by a payee
+  When the hold engine calculates availability
+  Then § 229.10(c)(2) does not apply
+
+Scenario: Treasury check and intra-bank check are not subject to (c)(2)
+  Given a check qualifying under (c)(1)(i) or (c)(1)(vi) regardless of in-person status
+  When the hold engine calculates availability
+  Then the next-business-day rule applies
+```
+
+---
+
+## Epic 5: Special deposit slip configuration (§ 229.10(c)(3))
+
+### US-5.1: Configure the special slip requirement
+**As a** compliance officer, **I want** to configure whether the bank requires a special deposit slip or envelope, **so that** the engine applies conditions (c)(1)(iv)(D) and (c)(1)(v)(C) only when we have opted in.
+
+```gherkin
+Scenario: Requirement disabled
+  Given the "require special deposit slip" setting is off
+  When a state or local government check or a cashier's, certified, or teller's check is classified
+  Then the special slip condition is not evaluated
+
+Scenario: Requirement enabled
+  Given the "require special deposit slip" setting is on
+  When one of these checks is deposited without the special slip or envelope
+  Then it does not qualify under (c)(1)(iv) or (c)(1)(v)
+
+Scenario: Setting scope
+  Given the "require special deposit slip" setting is on
+  When a Treasury check, USPS money order, or Federal Reserve or FHLB check is classified
+  Then the special slip condition is not applied
+  # (c)(3)(i) covers only state/local government checks and cashier's, certified, or teller's checks
+```
+
+### US-5.2: Customer-facing obligations when the slip is required
+**As a** compliance officer, **I want** the bank to provide the slip or inform customers how to prepare or obtain it, so that we comply with § 229.10(c)(3)(ii).
+
+```gherkin
+Scenario: Cannot enable requirement without a provision method
+  Given an administrator turns the "require special deposit slip" setting on
+  When the administrator saves the configuration
+  Then the system requires one of the following to be recorded
+    | The bank provides the slip or envelope to customers |
+    | The bank informs customers how the slip or envelope may be prepared or obtained, and makes it reasonably available |
+  And the configuration is rejected if neither is recorded
+```
+
+---
+
+## Epic 6: Cross-cutting behavior
+
+### US-6.1: Audit trail
+**As a** compliance analyst, **I want** every availability decision to record which paragraph of § 229.10 applied and why, **so that** I can demonstrate compliance.
+
+```gherkin
+Scenario: Decision record
+  When the hold engine assigns an availability date
+  Then it stores the paragraph reference (for example "229.10(c)(1)(iv)")
+  And the input attributes evaluated, the banking day, and the latest permitted availability date
+  And for a check that fails a paragraph, the specific unmet condition
+```
+
+### US-6.2: Split decisions for one deposit
+**As a** deposit operations manager, **I want** a single deposit of multiple items to be evaluated item by item, **so that** the right rule applies to each.
+
+```gherkin
+Scenario: Mixed items in one deposit
+  Given one deposit contains a Treasury check and a non-qualifying check
+  When the hold engine calculates availability
+  Then each item is classified separately
+  And the (c)(1)(vii) amount is determined from the day's aggregate across the customer's accounts
+```
+
+---
+
+## Gaps and questions for compliance and legal
+
+1. **Definitions are missing.** "Banking day," "business day," "check processing region," "actually and finally collected funds," "unit of general local government," and "in person" are not in the text provided. The stories treat them as upstream data or calendar inputs. Please confirm the source for each.
+2. **Checks not covered here.** Ordinary personal or business checks beyond the $275 amount have no rule in this text. The engine needs a fallback or handoff to other provisions, or the text you supplied is incomplete.
+3. **Payee conditions.** The text requires "an account held by a payee" for several check types. Please confirm how the engine determines this match, especially for joint accounts.
+4. **Special slip scope.** The text allows the requirement only for state/local government and cashier's/certified/teller's checks. US-5.1 enforces that scope.
+5. **Partial qualification of one check.** The text does not address checks that qualify in part, other than the $275 rule and the partial electronic payment case. I did not invent further behavior.
+
+I can't save files from this conversation, so the full text is above. I can reformat it as a table, a Jira-style backlog, or a trimmed set of stories if you'd like.

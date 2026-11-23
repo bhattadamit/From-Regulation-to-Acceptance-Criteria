@@ -1,0 +1,439 @@
+# Regulation E: Consumer Liability for Unauthorized EFTs (12 CFR 1005.6)
+**User stories and Gherkin acceptance criteria for the disputes platform**
+Prepared Friday, November 20, 2026
+
+This is a requirements draft. Compliance and Legal need to confirm every rule interpretation before build, and Section 5 lists the points I could not settle from the regulation text alone.
+
+---
+
+## 1. Scope and Business Rules
+
+**In scope:** Determining, calculating, recording and communicating the consumer's liability for unauthorized electronic fund transfers (EFTs) on consumer accounts.
+
+**Out of scope:** Error-resolution timelines, provisional credit and investigation (§1005.11), which the platform should treat as a linked but separate module. Also out of scope: Reg Z credit card liability and commercial accounts.
+
+| ID | Rule | Reg reference |
+|---|---|---|
+| BR-1 | Liability applies only if the access device was accepted, the institution provided a means to identify the consumer, and the required disclosures were given. Otherwise liability is $0. | §1005.6(a) |
+| BR-2 | **Timely notice** (within 2 business days of learning of loss or theft of an access device): liability is the lesser of $50 or the total unauthorized transfers before notice. | §1005.6(b)(1) |
+| BR-3 | **Late notice** (after 2 business days): liability is the lesser of $500 or the sum of (a) the lesser of $50 or the unauthorized transfers within the 2 business days, plus (b) unauthorized transfers after the 2nd business day and before notice that the bank establishes would not have occurred had the consumer given timely notice. | §1005.6(b)(2) |
+| BR-4 | **Periodic statement:** the consumer must report unauthorized transfers shown on a statement within 60 calendar days of its transmittal. After that, the consumer is liable for unauthorized transfers after day 60 and before notice that the bank establishes would not have occurred had the consumer reported in time. This applies with or without an access device. | §1005.6(b)(3) |
+| BR-5 | **Extenuating circumstances** (such as extended travel or hospitalization): the notice time limits are extended to a reasonable period. | §1005.6(b)(4) |
+| BR-6 | **Notice:** the consumer may give notice in person, by phone or in writing. Notice is effective when the bank has actual notice, when the consumer takes reasonable steps to give it, or when the bank is otherwise aware (constructive). Notice may come from a third party acting for the consumer. | §1005.6(b)(5) |
+| BR-7 | **Lesser liability:** if state law or the account agreement (including network zero-liability programs) imposes less liability, the lesser applies. | §1005.6(b)(6) |
+| BR-8 | **Burden of proof:** the bank must show that a transfer was authorized, or that the conditions for imposing liability were met. | §1005.6(a), §1005.6 commentary |
+| BR-9 | **Business day** is defined by the bank's own calendar of days on which it is open for substantially all business functions, not by the federal holiday calendar alone. | §1005.2(d) |
+
+**Default design principle:** liability is $0 unless the platform can document that every condition for a higher amount is met.
+
+---
+
+## 2. Epic
+
+**EPIC-REGE-06: Unauthorized Transfer Liability Determination.** The platform must calculate, evidence, apply and communicate consumer liability for each disputed unauthorized EFT in line with §1005.6.
+
+---
+
+## 3. User Stories
+
+### US-01: Validate liability preconditions
+**As a** disputes analyst, **I want** the platform to check the §1005.6(a) conditions before any liability is calculated, **so that** we never assess liability we are not entitled to.
+
+**Acceptance criteria**
+```gherkin
+Feature: Liability precondition check
+
+  Background:
+    Given a consumer account with an open unauthorized-transfer dispute
+
+  Scenario: All conditions met
+    Given the access device was accepted by the consumer
+    And the institution provided a means to identify the consumer
+    And the Reg E initial disclosures (§1005.7(b)(1)-(3)) were delivered before the first disputed transfer
+    When the analyst runs the liability determination
+    Then the dispute status is "LIABILITY_ELIGIBLE"
+    And the tier calculation is enabled
+
+  Scenario Outline: Any single condition not met
+    Given the condition "<condition>" is not satisfied
+    When the analyst runs the liability determination
+    Then the consumer liability is $0.00
+    And the reason code "PRECONDITION_FAILED" and the failed condition "<condition>" are recorded
+    And the tier calculation is not run
+
+    Examples:
+      | condition                         |
+      | Access device accepted            |
+      | Means of identification provided  |
+      | Required disclosures delivered    |
+
+  Scenario: Precondition data is missing
+    Given the disclosure delivery date is not on file
+    When the analyst runs the liability determination
+    Then the dispute is routed to "MANUAL_REVIEW"
+    And no liability amount greater than $0.00 can be saved
+```
+
+---
+
+### US-02: Capture notice date, channel and type
+**As a** call center or branch agent, **I want** to record when and how the consumer notified us, **so that** the liability tier uses the correct notice date.
+
+**Acceptance criteria**
+```gherkin
+Feature: Notice capture
+
+  Scenario Outline: Record notice by any valid channel
+    When an agent logs notice received via "<channel>" on "<date and time>"
+    Then the platform stores notice type "ACTUAL", the channel, the timestamp and the agent ID
+    And the notice date cannot be edited without an audit-logged reason
+
+    Examples:
+      | channel                  |
+      | Phone                    |
+      | In person                |
+      | Written/secure message   |
+      | Mobile app dispute flow  |
+
+  Scenario: Notice given through a third party
+    When an agent logs notice from a person acting on behalf of the consumer
+    Then the notice is recorded as valid
+    And the third party's name and relationship are captured
+
+  Scenario: Consumer took reasonable steps but the bank did not receive notice
+    Given the consumer provides evidence of a good-faith notification attempt
+    When the analyst records the attempt
+    Then the effective notice date is set to the attempt date
+    And the evidence is attached to the dispute
+
+  Scenario: Notice made to a channel not designated for disputes
+    When notice is logged from a non-designated channel such as a branch teller
+    Then the platform still treats the notice as effective
+    And the notice date is the date the bank first received it
+
+  Scenario: Required learning-of-loss date
+    Given the dispute involves a lost or stolen access device
+    When the agent saves the notice
+    Then the "date consumer learned of loss/theft" field is mandatory
+```
+
+---
+
+### US-03: Business-day calendar service
+**As a** compliance officer, **I want** the platform to calculate business days from a maintained institutional calendar, **so that** the 2-business-day cutoff is correct and defensible.
+
+**Acceptance criteria**
+```gherkin
+Feature: Business day calculation
+
+  Background:
+    Given the bank calendar marks Saturdays, Sundays and bank holidays as non-business days
+    And Thursday 2026-11-26 (Thanksgiving) is a non-business day
+    And Friday 2026-11-27 is a business day
+
+  Scenario: Weekend and holiday skipped
+    Given the consumer learned of the loss on Wednesday 2026-11-25
+    When the platform calculates the 2-business-day deadline
+    Then business day 1 is 2026-11-27
+    And business day 2 is 2026-11-30
+    And the timely-notice deadline is 2026-11-30 at close of business
+
+  Scenario: Day of learning is excluded from the count
+    Given the consumer learned of the loss on Monday 2026-11-02
+    When the platform calculates the deadline
+    Then the deadline is Wednesday 2026-11-04
+
+  Scenario: Calendar change is versioned
+    When Compliance adds or removes a bank holiday
+    Then a new calendar version is created with an effective date and an approver
+    And closed disputes keep the calendar version used at determination
+```
+
+---
+
+### US-04: Calculate liability for timely notice
+**As a** disputes analyst, **I want** the platform to cap liability at $50 when the consumer notified within 2 business days, **so that** assessments follow §1005.6(b)(1).
+
+**Acceptance criteria**
+```gherkin
+Feature: Timely notice liability
+
+  Background:
+    Given the preconditions in US-01 are satisfied
+    And the dispute involves a lost or stolen access device
+
+  Scenario Outline: Cap at the lesser of $50 or unauthorized transfers
+    Given the consumer learned of the loss on 2026-11-02
+    And notice was given on 2026-11-04
+    And total unauthorized transfers before notice are <total>
+    When liability is calculated
+    Then the consumer liability is <liability>
+    And the tier "TIMELY_NOTICE" is recorded
+
+    Examples:
+      | total   | liability |
+      | $20.00  | $20.00    |
+      | $50.00  | $50.00    |
+      | $850.00 | $50.00    |
+
+  Scenario: Notice on the last moment of the deadline day
+    Given the 2-business-day deadline is 2026-11-04 at close of business
+    And notice was logged at 2026-11-04 16:45 before the cutoff
+    Then the tier is "TIMELY_NOTICE"
+```
+
+---
+
+### US-05: Calculate liability for late notice (up to $500)
+**As a** disputes analyst, **I want** the platform to apply the §1005.6(b)(2) formula, including the "would not have occurred" test, **so that** we assess no more than we can prove.
+
+**Acceptance criteria**
+```gherkin
+Feature: Late notice liability
+
+  Background:
+    Given the preconditions in US-01 are satisfied
+    And the consumer learned of the loss on 2026-11-02
+    And the 2-business-day deadline was 2026-11-04
+    And notice was given on 2026-11-09
+
+  Scenario: Post-deadline transfers proven preventable
+    Given unauthorized transfers of $150.00 on 2026-11-01 and $200.00 on 2026-11-03
+    And an unauthorized transfer of $400.00 on 2026-11-06
+    And the analyst records evidence that the 2026-11-06 transfer would have been prevented by timely notice
+    When liability is calculated
+    Then component A is $50.00 (lesser of $50 or $350.00)
+    And component B is $400.00
+    And the consumer liability is $450.00
+    And the tier "LATE_NOTICE" is recorded
+
+  Scenario: $500 cap applied
+    Given the within-window transfers total $350.00
+    And post-deadline preventable transfers total $700.00
+    When liability is calculated
+    Then the uncapped sum is $750.00
+    And the consumer liability is $500.00
+
+  Scenario: Post-deadline transfer without preventability evidence
+    Given a $400.00 transfer on 2026-11-06
+    And no preventability evidence is recorded
+    When liability is calculated
+    Then component B excludes the $400.00
+    And the consumer liability is $50.00
+
+  Scenario: Evidence required before saving component B
+    When an analyst includes a post-deadline transfer in component B
+    Then the platform requires an evidence note and a supporting artifact reference
+    And the entry is blocked if either is blank
+```
+
+---
+
+### US-06: Apply the 60-day periodic statement rule
+**As a** disputes analyst, **I want** the platform to evaluate the 60-day statement window, **so that** liability for late reporting is assessed correctly, with or without an access device.
+
+**Acceptance criteria**
+```gherkin
+Feature: 60-day statement rule
+
+  Scenario: Reported within 60 days of statement transmittal
+    Given the statement showing the unauthorized transfer was transmitted on 2026-10-01
+    And the consumer gave notice on 2026-11-15
+    When liability is calculated for a transfer without an access device (e.g. unauthorized ACH debit)
+    Then the consumer liability is $0.00
+    And the reason code "REPORTED_WITHIN_60_DAYS" is recorded
+
+  Scenario: Reported after day 60
+    Given the statement was transmitted on 2026-10-01
+    And the 60th calendar day is 2026-11-30
+    And the consumer gave notice on 2026-12-15
+    And an unauthorized ACH debit of $250.00 posted on 2026-12-05
+    And the analyst records evidence it would not have occurred had notice been given by 2026-11-30
+    When liability is calculated
+    Then the consumer liability is $250.00
+    And transfers posted on or before 2026-11-30 are assessed at $0.00
+
+  Scenario: Statement transmittal date uses the delivery record
+    When the platform determines the transmittal date
+    Then it uses the date the statement was made available or mailed per the delivery log
+    And a missing delivery log routes the case to "MANUAL_REVIEW" with $0.00 liability
+
+  Scenario: Both access-device and statement rules apply
+    Given the dispute involves a stolen debit card
+    And the consumer also failed to report within 60 days of the statement
+    When liability is calculated
+    Then the platform computes the §1005.6(b)(1)/(b)(2) amount and the §1005.6(b)(3) amount separately
+    And the total is shown as the sum of non-overlapping transfers, each counted once
+```
+
+---
+
+### US-07: Extenuating circumstances extension
+**As a** senior disputes analyst, **I want** to extend notice deadlines for documented extenuating circumstances, **so that** consumers are not penalized for delays beyond their control.
+
+**Acceptance criteria**
+```gherkin
+Feature: Extenuating circumstances
+
+  Scenario: Extension granted
+    Given a consumer was hospitalized from 2026-10-28 to 2026-11-12
+    When a senior analyst records circumstance type "HOSPITALIZATION" with supporting documentation
+    And selects a revised reasonable notice deadline of 2026-11-14
+    Then the platform recalculates liability using the revised deadline
+    And the original and revised deadlines are both retained
+
+  Scenario: Supervisor approval required
+    When any analyst below the senior role submits an extension
+    Then the extension remains "PENDING_APPROVAL"
+    And the calculation uses the original deadline until approval
+
+  Scenario: Documentation not required from the consumer
+    Given the consumer's statement alone describes the circumstance
+    When a senior analyst records the extension
+    Then the platform accepts a consumer statement as a documentation type
+    And the case is not blocked pending third-party proof
+
+  Scenario: Extension denied
+    When an extension is denied
+    Then a denial reason is mandatory
+    And the denial is available for QA review
+```
+
+---
+
+### US-08: Apply the lesser contractual or network liability
+**As a** product owner, **I want** the platform to apply the lowest applicable liability limit, **so that** we honor account agreements, network zero-liability rules and state law.
+
+**Acceptance criteria**
+```gherkin
+Feature: Lesser liability limit
+
+  Scenario Outline: Lowest applicable limit applied
+    Given the Reg E calculated liability is <reg_e>
+    And the applicable limit from the account agreement or network program is <contract>
+    And the applicable state-law limit is <state>
+    When final liability is determined
+    Then the consumer liability is <final>
+    And the controlling source "<source>" is recorded
+
+    Examples:
+      | reg_e   | contract | state   | final   | source           |
+      | $450.00 | $0.00    | none    | $0.00   | NETWORK_ZERO     |
+      | $500.00 | $50.00   | none    | $50.00  | ACCOUNT_AGREEMENT|
+      | $50.00  | none     | $0.00   | $0.00   | STATE_LAW        |
+      | $200.00 | none     | none    | $200.00 | REG_E            |
+
+  Scenario: Limits are product-configured
+    When Product updates a zero-liability program's terms
+    Then a new configuration version is created with an effective date and approver
+    And disputes use the version in force on the date of the first disputed transfer
+```
+
+---
+
+### US-09: Authorization determination and evidence file
+**As a** compliance officer, **I want** every liability decision tied to an evidence file, **so that** we can demonstrate we met our burden of proof.
+
+**Acceptance criteria**
+```gherkin
+Feature: Burden of proof
+
+  Scenario: Transfer treated as authorized
+    When an analyst marks a disputed transfer "AUTHORIZED"
+    Then the platform requires a written rationale and at least one supporting evidence item
+    And the evidence types include authentication logs, device data, merchant records and customer statements
+
+  Scenario: Insufficient evidence defaults to unauthorized
+    Given the analyst has not completed the evidence checklist
+    When the investigation closes
+    Then the transfer is classified "UNAUTHORIZED"
+    And no liability above $0.00 can be assessed
+
+  Scenario: Consumer negligence is not a basis for increased liability
+    When an analyst enters "consumer negligence" as a justification for higher liability
+    Then the platform rejects the justification as a liability basis
+    And liability remains governed by §1005.6(b) tiers only
+
+  Scenario: Case file completeness check
+    When an analyst attempts to finalize a liability amount
+    Then the platform verifies the notice record, calendar version, transfer list, evidence items and preconditions are present
+    And finalization is blocked with a list of missing items
+```
+
+---
+
+### US-10: Customer communication of liability decision
+**As a** consumer, **I want** a clear written explanation of any liability assessed, **so that** I understand the decision and my rights.
+
+**Acceptance criteria**
+```gherkin
+Feature: Liability notice to the consumer
+
+  Scenario: Zero liability communicated
+    When final liability is $0.00
+    Then the consumer receives a decision notice stating no liability was assessed
+    And the notice is sent through the consumer's preferred channel
+
+  Scenario: Liability above zero communicated
+    When final liability is greater than $0.00
+    Then the notice states the amount, the tier applied, the notice dates relied upon and the transfers included
+    And the notice states how to request the supporting information
+    And the notice includes the dispute contact information
+
+  Scenario: Template governance
+    When Compliance approves a template change
+    Then the new template is versioned with an effective date
+    And each sent notice stores the template version used
+```
+
+---
+
+### US-11: Audit trail, reporting and overrides
+**As a** compliance officer, **I want** a complete audit trail and exception reporting, **so that** examiners and QA can reproduce any liability decision.
+
+**Acceptance criteria**
+```gherkin
+Feature: Audit and reporting
+
+  Scenario: Reproducible calculation
+    When any liability decision is opened for review
+    Then the platform shows all inputs, the rule version, the calendar version, the tier, the formula components and the result
+    And re-running the calculation on stored inputs produces the same result
+
+  Scenario: Manual override requires dual control
+    When an analyst overrides a calculated liability amount
+    Then a reason code and a second approver are required
+    And an override that increases consumer liability is blocked
+
+  Scenario: Monthly liability report
+    When Compliance requests the monthly report
+    Then it includes the count and dollar total of disputes by tier, precondition failures, extensions granted, overrides and zero-liability applications
+
+  Scenario: Retention
+    Then liability records and evidence are retained per the bank's retention schedule (minimum 2 years per §1005.13)
+    And records are retrievable by dispute ID, account and date range
+```
+
+---
+
+## 4. Non-Functional Requirements
+
+- **Determinism:** the same inputs and rule version must always return the same liability.
+- **Rule versioning:** thresholds ($50 and $500), the 60-day window and the 2-business-day window must be configurable parameters, not hard-coded.
+- **Security:** PII and evidence access is role-based, with logged access.
+- **Performance:** a single dispute calculation returns in under 2 seconds.
+- **Traceability:** each story maps to a BR and a regulation cite, and each is covered by an automated test.
+
+---
+
+## 5. Open Questions for Compliance and Legal
+
+1. **Pre-learning transfers:** transfers made before the consumer learned of the loss are treated as inside the first-tier window in US-05, but the regulation text is not explicit. Please confirm the commentary treatment.
+2. **Counting convention:** US-03 excludes the day of learning from the 2-business-day count. Please confirm.
+3. **Fraudulently induced transfers:** CFPB guidance has treated some transfers obtained through fraud as unauthorized. Should the platform classify scam and social-engineering cases under this module or route them for a separate determination?
+4. **Zero-liability programs:** which products and networks apply, and what are their exact conditions?
+5. **State law:** which states' limits apply, based on account domicile or consumer residence?
+6. **Constructive notice:** are there specific bank events (for example, a fraud alert that the consumer replies to) that should create constructive notice automatically?
+7. **Interaction with §1005.11:** will liability determination run before, during or after the error-resolution investigation, and how are provisional credit reversals handled?
+
+I can also break these into a Jira-ready backlog with story points and dependencies, or add a traceability matrix and test data set if that would help.

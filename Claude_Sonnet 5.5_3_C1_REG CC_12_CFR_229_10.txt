@@ -1,0 +1,572 @@
+# Regulation CC Next-Day Availability (12 CFR 229.10): User Stories and Acceptance Criteria
+
+**Author:** Senior Business Analyst, Deposit Operations | **Date:** November 20, 2026 | **Status:** Draft for Compliance/Product review
+
+---
+
+## 1. Purpose and scope
+
+**Goal:** Make the deposit hold engine assign the correct *next-business-day* availability date to each component of a deposit, as 12 CFR 229.10 requires, and make those decisions auditable.
+
+**In scope:** cash deposits, electronic payments, next-day check types, the "minimum amount" rule, business and banking day logic, effective-dated thresholds, and audit and reason codes.
+
+**Out of scope (separate epics, but this work exposes hooks for them):**
+- Exception holds (§229.13: new account, large deposit, repeated overdraft, reasonable cause, emergency conditions)
+- The existing §229.12 schedule for non-next-day checks
+- Customer disclosures and hold notices (§§229.15–229.18)
+
+## 2. Reference parameters
+
+The agencies adjust the Reg CC dollar thresholds every five years. The current values took effect July 1, 2025, and the minimum amount under §229.10(c)(1)(vii) is $275. These must be stored as **effective-dated configuration**, never hard-coded.
+
+| Parameter | Value | Citation | Notes |
+|---|---|---|---|
+| `MIN_AMOUNT_NEXT_DAY` | $275 | §229.10(c)(1)(vii) | Previously $225; effective 7/1/2025 |
+| `CASH_WITHDRAWAL_AMOUNT` | $550 | §229.12(d) | Reference only, not used in this epic |
+| `NEW_ACCOUNT_AMOUNT` / `LARGE_DEPOSIT_THRESHOLD` | $6,725 | §229.13 | Used only by the exception-hold epic |
+| `DEPOSIT_CUTOFF_TIME` | 14:00 local | §229.19 | Assumed bank policy; the regulation allows no earlier than 2 p.m. Confirm with Compliance |
+
+**Assumptions and open items for Compliance sign-off**
+1. Paragraph-level citations under §229.10(c)(1) should be verified against the current eCFR text before they go into rule metadata. The sub-paragraph lettering is not reproduced here from memory.
+2. Whether the $275 minimum amount applies per account or per customer across multiple accounts is a policy decision. It is modeled as a configuration flag (US-08).
+3. Channel conditions (employee-attended vs. ATM vs. remote deposit capture) for next-day check types follow the bank's disclosed policy and are configurable (US-05, US-06).
+4. Cash deposited at an ATM or otherwise not to an employee is governed by a different timing rule. It is excluded from US-03 pending a confirmed citation.
+
+## 3. Personas
+
+- **Deposit Operations Analyst:** reviews holds and answers customer inquiries
+- **Compliance Officer:** needs evidence the engine follows Reg CC
+- **Account Holder (Consumer or Business):** expects timely access to funds
+- **Hold Engine Product Owner:** owns rule configuration
+
+---
+
+## 4. Epic: Reg CC Next-Day Availability in the Deposit Hold Engine
+
+### US-01: Apply next-day rules only to Reg CC "accounts"
+
+**As a** Compliance Officer
+**I want** the engine to apply §229.10 rules only to transaction accounts covered by Regulation CC
+**So that** we do not apply consumer-style availability rules to products outside the regulation.
+
+```gherkin
+Feature: Reg CC account eligibility
+
+  Background:
+    Given the hold engine has product-to-RegCC-coverage mapping loaded
+
+  Scenario Outline: Coverage determination by product type
+    Given an account of product type "<product>"
+    When a deposit is received for the account
+    Then the engine sets RegCC_covered to "<covered>"
+
+    Examples:
+      | product                    | covered |
+      | Consumer Checking          | true    |
+      | Business Checking          | true    |
+      | NOW Account                | true    |
+      | Certificate of Deposit     | false   |
+      | Savings (non-transaction)  | false   |
+
+  Scenario: Uncovered account bypasses Reg CC logic
+    Given an account with RegCC_covered "false"
+    When a deposit is received
+    Then the engine does not evaluate §229.10 rules
+    And the audit record states reason code "ACCT_NOT_REGCC"
+
+  Scenario: Unmapped product fails safe
+    Given an account whose product type has no coverage mapping
+    When a deposit is received
+    Then the engine treats the account as RegCC_covered "true"
+    And raises a configuration alert to the Product Owner queue
+```
+
+---
+
+### US-02: Calculate banking day, business day, and next business day
+
+**As a** Hold Engine Product Owner
+**I want** a single, tested calendar service for business and banking day determination
+**So that** every availability rule computes dates consistently.
+
+*Definitions:* A **business day** is any calendar day except Saturday, Sunday, and a legal federal holiday. A **banking day** is the part of a business day on which the bank is open to carry on substantially all banking functions. Deposits received after the cutoff, or on a non-banking day, are treated as received on the next banking day.
+
+```gherkin
+Feature: Banking day and next-business-day calculation
+
+  Background:
+    Given the deposit cutoff time is "14:00" America/Chicago
+    And the federal holiday calendar for 2026 is loaded
+    And "2026-11-26" (Thanksgiving) is a federal holiday
+
+  Scenario Outline: Deposit date assignment
+    When a deposit is received on "<received_datetime>"
+    Then the deposit's banking day is "<banking_day>"
+    And the next business day after the banking day is "<next_business_day>"
+
+    Examples:
+      | received_datetime    | banking_day | next_business_day | note                               |
+      | 2026-11-18 10:00 CT  | 2026-11-18  | 2026-11-19        | Wednesday, before cutoff           |
+      | 2026-11-18 15:30 CT  | 2026-11-19  | 2026-11-20        | After cutoff rolls to next banking day |
+      | 2026-11-20 13:59 CT  | 2026-11-20  | 2026-11-23        | Friday before cutoff, spans weekend |
+      | 2026-11-20 14:01 CT  | 2026-11-23  | 2026-11-24        | Friday after cutoff                |
+      | 2026-11-21 09:00 CT  | 2026-11-23  | 2026-11-24        | Saturday deposit                   |
+      | 2026-11-25 11:00 CT  | 2026-11-25  | 2026-11-27        | Skips Thanksgiving                 |
+      | 2026-11-26 09:00 CT  | 2026-11-27  | 2026-11-30        | Holiday deposit                    |
+
+  Scenario: Calendar data is missing for the deposit year
+    Given the holiday calendar for the deposit year is not loaded
+    When a deposit is received
+    Then the engine does not guess a date
+    And routes the deposit to manual review with reason code "CAL_MISSING"
+    And sends a high-priority alert to Deposit Operations
+```
+
+---
+
+### US-03: Next-day availability for cash deposits made to an employee
+
+**As an** Account Holder
+**I want** cash I hand to a teller to be available the next business day
+**So that** I can use my money promptly, as the regulation guarantees.
+
+```gherkin
+Feature: Cash deposits in person (§229.10(a))
+
+  Background:
+    Given the account is RegCC_covered
+    And the deposit cutoff time is "14:00" America/Chicago
+
+  Scenario: Cash deposited with a teller before cutoff
+    Given a cash deposit of $1,500.00 made in person to a bank employee on "2026-11-20 10:00 CT"
+    When the hold engine evaluates the deposit
+    Then $1,500.00 is assigned availability date "2026-11-23"
+    And availability time is "start of business"
+    And no hold remains on the funds after that date
+    And reason code "CASH_EMPLOYEE_NEXT_DAY" is logged
+
+  Scenario: Cash deposit after cutoff
+    Given a cash deposit of $400.00 made to a teller on "2026-11-20 16:00 CT"
+    When the hold engine evaluates the deposit
+    Then the banking day is "2026-11-23"
+    And the availability date is "2026-11-24"
+
+  Scenario: Cash component of a mixed deposit is evaluated independently
+    Given a deposit slip containing $300.00 in cash and a $900.00 personal check
+    And the deposit is made in person to a teller
+    When the hold engine evaluates the deposit
+    Then the $300.00 cash component receives next-day availability
+    And the check component is evaluated under check rules separately
+```
+
+---
+
+### US-04: Next-day availability for electronic payments
+
+**As an** Account Holder
+**I want** incoming wires and ACH credits made available no later than the next business day
+**So that** electronic funds are not held longer than permitted.
+
+*Note:* The engine enforces the **latest permitted** date. Bank policy may make funds available sooner, via a configurable earlier-availability rule.
+
+```gherkin
+Feature: Electronic payments (§229.10(b))
+
+  Background:
+    Given the account is RegCC_covered
+
+  Scenario Outline: Incoming electronic payment
+    Given an incoming "<type>" of $<amount> received on banking day "2026-11-24"
+    When the hold engine evaluates the credit
+    Then the latest permitted availability date is "<latest_date>"
+    And reason code "ELEC_PAYMENT_NEXT_DAY" is logged
+
+    Examples:
+      | type            | amount    | latest_date |
+      | Wire transfer   | 25,000.00 | 2026-11-25  |
+      | ACH credit      | 1,200.00  | 2026-11-25  |
+
+  Scenario: Policy configured for same-day availability
+    Given the bank policy sets ACH credit availability to "same day"
+    When an ACH credit of $800.00 posts on a banking day
+    Then the funds are available per the policy
+    And the engine never assigns a date later than the Reg CC maximum
+
+  Scenario: Electronic payment received on a non-business day
+    Given a wire is received on Saturday "2026-11-21"
+    When the hold engine evaluates the wire
+    Then the banking day is "2026-11-23"
+    And the latest permitted availability date is "2026-11-24"
+```
+
+---
+
+### US-05: Next-day availability for government and Federal Reserve/FHLB checks
+
+**As an** Account Holder
+**I want** U.S. Treasury checks, Federal Reserve Bank and Federal Home Loan Bank checks, and state or local government checks available the next business day
+**So that** government payments reach me quickly.
+
+```gherkin
+Feature: Government and Reserve Bank checks (§229.10(c)(1))
+
+  Background:
+    Given the account is RegCC_covered
+    And configuration "REQUIRE_PAYEE_MATCH" is true
+    And configuration "GOV_CHECK_CHANNELS" lists the channels where next-day treatment applies
+
+  Scenario Outline: Eligible check type deposited to the payee's account
+    Given a "<check_type>" for $<amount> deposited to an account owned by the named payee
+    And the deposit channel is an eligible channel
+    And the deposit banking day is "2026-11-24"
+    When the hold engine evaluates the check
+    Then the full $<amount> is assigned availability date "2026-11-25"
+    And reason code "NEXTDAY_<code>" is logged
+
+    Examples:
+      | check_type                  | amount   | code       |
+      | U.S. Treasury check         | 3,200.00 | TREASURY   |
+      | Federal Reserve Bank check  | 9,000.00 | FRB        |
+      | Federal Home Loan Bank check| 7,500.00 | FHLB       |
+      | State government check      | 1,850.00 | STATE_GOV  |
+      | Local government check      | 640.00   | LOCAL_GOV  |
+
+  Scenario: Government check deposited to an account that is not the payee's
+    Given a U.S. Treasury check payable to "Jordan Lee"
+    And the deposit is made to an account not owned by "Jordan Lee"
+    When the hold engine evaluates the check
+    Then the check is not classified as next-day
+    And it falls through to the next applicable rule
+    And reason code "PAYEE_MISMATCH" is logged
+
+  Scenario: Payee match cannot be determined automatically
+    Given the payee name on a state government check is illegible
+    When the hold engine evaluates the check
+    Then the item is routed to the manual review queue
+    And no next-day assignment is made until a reviewer decides
+```
+
+---
+
+### US-06: Next-day availability for cashier's, certified, teller's checks and postal money orders
+
+**As an** Account Holder
+**I want** bank-guaranteed instruments available the next business day
+**So that** I can rely on them for time-sensitive payments.
+
+```gherkin
+Feature: Guaranteed instruments (§229.10(c)(1))
+
+  Background:
+    Given the account is RegCC_covered
+    And configuration "REQUIRE_SPECIAL_DEPOSIT_SLIP" reflects the bank's disclosed policy
+
+  Scenario Outline: Guaranteed instrument deposited to the payee's account
+    Given a "<instrument>" for $<amount> deposited to the payee's account
+    And the deposit banking day is "2026-11-20"
+    When the hold engine evaluates the item
+    Then the full amount is assigned availability date "2026-11-23"
+    And reason code "NEXTDAY_GUARANTEED" is logged
+
+    Examples:
+      | instrument            | amount    |
+      | Cashier's check       | 12,000.00 |
+      | Certified check       | 4,500.00  |
+      | Teller's check        | 2,250.00  |
+      | Postal money order    | 700.00    |
+
+  Scenario: Bank requires a special deposit slip and customer did not use one
+    Given configuration "REQUIRE_SPECIAL_DEPOSIT_SLIP" is true
+    And a cashier's check is deposited without the required slip or separate identification
+    When the hold engine evaluates the item
+    Then the item is not classified as next-day
+    And reason code "SLIP_REQUIRED_NOT_MET" is logged
+    And the item is evaluated under the minimum-amount rule (US-08)
+
+  Scenario: Instrument deposited in a channel the bank does not designate for next-day treatment
+    Given the deposit channel is not in the configured eligible channel list for this instrument type
+    When the hold engine evaluates the item
+    Then next-day treatment is not applied
+    And the decision is recorded with the channel and the policy version used
+```
+
+---
+
+### US-07: Next-day availability for checks drawn on our own bank
+
+**As an** Account Holder
+**I want** checks drawn on our bank, including other branches, available the next business day
+**So that** on-us items are not delayed unnecessarily.
+
+```gherkin
+Feature: On-us checks
+
+  Background:
+    Given the account is RegCC_covered
+    And the routing number list for this institution is loaded
+
+  Scenario: Check drawn on the same bank at another branch
+    Given a $2,600.00 check whose routing number belongs to this institution
+    And the check is deposited to an account at this institution
+    And the deposit banking day is "2026-11-20"
+    When the hold engine evaluates the check
+    Then the full $2,600.00 is assigned availability date "2026-11-23"
+    And reason code "ONUS_NEXT_DAY" is logged
+
+  Scenario: Check from an affiliated or acquired institution routing number
+    Given a check whose routing number is not on this institution's active list
+    When the hold engine evaluates the check
+    Then the check is not classified as on-us
+    And it is evaluated under the standard check rules
+
+  Scenario: Routing number lookup fails
+    Given the routing number cannot be parsed from the MICR line
+    When the hold engine evaluates the check
+    Then the item is evaluated under the standard check rules
+    And a data-quality flag is added to the audit record
+```
+
+---
+
+### US-08: Apply the $275 minimum amount to other check deposits
+
+**As an** Account Holder
+**I want** the first $275 of my check deposits that are not otherwise next-day items available the next business day
+**So that** I have guaranteed access to a baseline amount.
+
+*Rules:* The minimum amount is applied once per banking day across the aggregate of other checks, and is withdrawable in any form, including cash. The remainder follows the existing availability schedule.
+
+```gherkin
+Feature: Minimum amount rule (§229.10(c)(1)(vii))
+
+  Background:
+    Given the account is RegCC_covered
+    And MIN_AMOUNT_NEXT_DAY is $275 effective "2025-07-01"
+    And configuration "MIN_AMOUNT_SCOPE" is "PER_ACCOUNT"
+
+  Scenario Outline: Single check deposit
+    Given a personal check for $<check_amount> deposited on banking day "2026-11-20"
+    And the check qualifies for no other next-day rule
+    When the hold engine evaluates the deposit
+    Then $<next_day> is available on "2026-11-23"
+    And $<remaining> is assigned the availability date from the standard schedule
+
+    Examples:
+      | check_amount | next_day | remaining |
+      | 100.00       | 100.00   | 0.00      |
+      | 275.00       | 275.00   | 0.00      |
+      | 275.01       | 275.00   | 0.01      |
+      | 1,000.00     | 275.00   | 725.00    |
+
+  Scenario: Multiple checks on the same banking day share one minimum amount
+    Given checks of $200.00 and $300.00 are deposited to the same account on one banking day
+    And neither qualifies for another next-day rule
+    When the hold engine evaluates the deposits
+    Then a total of $275.00 is available on the next business day
+    And $225.00 follows the standard schedule
+
+  Scenario: Minimum amount is reduced by next-day items in the same deposit
+    Given a deposit contains a $5,000.00 U.S. Treasury check and a $400.00 personal check
+    When the hold engine evaluates the deposit
+    Then the Treasury check is available next business day in full
+    And the personal check is still eligible for the $275.00 minimum amount
+    And $125.00 of the personal check follows the standard schedule
+
+  Scenario: Minimum amount is applied once across deposits on the same banking day
+    Given a $250.00 check is deposited at 09:00 and a $250.00 check at 12:00 on the same banking day
+    When the hold engine evaluates both deposits
+    Then the combined next-day amount does not exceed $275.00
+    And the second deposit receives only the unused portion of the minimum amount
+
+  Scenario: Scope set to per customer across accounts
+    Given "MIN_AMOUNT_SCOPE" is "PER_CUSTOMER"
+    And a customer deposits $250.00 in checks to each of two accounts on one banking day
+    When the hold engine evaluates the deposits
+    Then the combined next-day amount across both accounts does not exceed $275.00
+```
+
+---
+
+### US-09: Post holds and releases so funds are available at the start of business
+
+**As a** Deposit Operations Analyst
+**I want** holds to release automatically at the start of business on the assigned date
+**So that** customers can use funds exactly when the regulation requires.
+
+```gherkin
+Feature: Hold ledger and release timing
+
+  Background:
+    Given the start-of-business release job runs before the first customer-facing channel opens
+
+  Scenario: Mixed deposit produces component-level holds
+    Given a $2,000.00 deposit with $500.00 cash and a $1,500.00 personal check
+    When the hold engine evaluates the deposit
+    Then the ledger shows a $500.00 component with availability "2026-11-23"
+    And a $275.00 component with availability "2026-11-23" from the minimum amount rule
+    And a $1,225.00 component with the standard-schedule availability date
+    And the component amounts sum to $2,000.00
+
+  Scenario: Automatic release at start of business
+    Given a hold component has availability date "2026-11-23"
+    When the release job executes on "2026-11-23"
+    Then the component moves to available balance before the first channel opens
+    And a release event is recorded with a timestamp
+
+  Scenario: Release job fails
+    Given the release job has not completed by the configured SLA time
+    When the SLA breach is detected
+    Then a critical alert is sent to Deposit Operations and Compliance
+    And a manual release procedure is triggered
+    And the incident is recorded as a potential Reg CC timing exception
+
+  Scenario: Component amounts do not reconcile
+    Given component amounts sum to a value different from the deposit amount
+    When the engine finalizes the evaluation
+    Then the evaluation is rejected
+    And the deposit is routed to manual review with reason code "RECON_MISMATCH"
+```
+
+---
+
+### US-10: Effective-dated threshold configuration
+
+**As a** Hold Engine Product Owner
+**I want** regulatory thresholds stored with effective dates and approval workflow
+**So that** the next five-year adjustment is a configuration change, not a code release.
+
+```gherkin
+Feature: Threshold configuration management
+
+  Scenario: Engine selects the threshold in force on the deposit's banking day
+    Given MIN_AMOUNT_NEXT_DAY has versions:
+      | amount | effective_from |
+      | 225    | 2020-07-01     |
+      | 275    | 2025-07-01     |
+    When a check deposit has banking day "2025-06-30"
+    Then the engine uses $225
+    When a check deposit has banking day "2025-07-01"
+    Then the engine uses $275
+
+  Scenario: Configuration change requires dual approval
+    Given a user proposes a new MIN_AMOUNT_NEXT_DAY version
+    When the user submits the change
+    Then it remains inactive until a second authorized approver, who is not the submitter, approves it
+    And Compliance is notified of the pending change
+
+  Scenario: Re-evaluating historical deposits uses historical thresholds
+    Given an audit request to replay a deposit from "2025-03-10"
+    When the engine replays the evaluation
+    Then it applies the thresholds and cutoff time in force on that date
+    And the result matches the original recorded decision
+```
+
+---
+
+### US-11: Define precedence with exception holds
+
+**As a** Compliance Officer
+**I want** a clear, tested interface between next-day availability and exception holds
+**So that** exceptions can only extend availability where §229.13 allows, and never by accident.
+
+```gherkin
+Feature: Next-day availability and exception hold precedence
+
+  Scenario: No exception applies
+    Given no §229.13 exception is flagged for a deposit
+    When the engine finalizes availability
+    Then the availability dates from the next-day rules stand
+
+  Scenario: Exception flag present from the exception-hold service
+    Given the exception-hold service returns exception "<exception>" for the deposit
+    When the engine finalizes availability
+    Then the engine applies the exception's rules from the exception-hold service
+    And records both the original §229.10 date and the extended date
+    And the reason codes for both decisions are logged
+
+    Examples:
+      | exception        |
+      | NEW_ACCOUNT      |
+      | LARGE_DEPOSIT    |
+      | REASONABLE_CAUSE |
+
+  Scenario: Exception service unavailable
+    Given the exception-hold service times out
+    When a deposit is evaluated
+    Then the engine applies the §229.10 availability dates only
+    And flags the deposit for post-evaluation exception review within the same banking day
+    And does not apply any extended hold without a documented exception
+```
+
+---
+
+### US-12: Audit trail and explainability
+
+**As a** Compliance Officer
+**I want** every availability decision to be reproducible with reason codes
+**So that** we can answer examiner questions and customer complaints.
+
+```gherkin
+Feature: Auditability of availability decisions
+
+  Scenario: Decision record completeness
+    When the engine evaluates any covered deposit
+    Then the audit record contains:
+      | field                         |
+      | deposit_id and component_id   |
+      | received timestamp and banking day |
+      | item type and classification  |
+      | rule applied and reason code  |
+      | threshold versions used       |
+      | calendar version used         |
+      | assigned availability date    |
+      | engine version                |
+
+  Scenario: Analyst views the explanation
+    Given a deposit component with availability "2026-11-23"
+    When a Deposit Operations Analyst opens the hold detail screen
+    Then the screen shows the rule name, citation, and plain-language reason
+    And the analyst can see which part of the deposit used the minimum amount rule
+
+  Scenario: Audit records are immutable
+    Given an audit record exists for a deposit
+    When any user attempts to edit or delete it
+    Then the action is rejected
+    And the attempt is logged
+```
+
+---
+
+## 5. Non-functional requirements
+
+- **Accuracy:** 100% of regression test cases in the US-02 through US-08 example tables pass before release.
+- **Performance:** availability evaluation completes in under 500 ms at p95 for deposits with up to 50 items.
+- **Retention:** audit records are retained per the bank's record-retention schedule and are queryable by deposit, account, date, and reason code.
+- **Calendar controls:** the holiday calendar is loaded at least 12 months ahead and reviewed annually by Compliance.
+- **Security:** configuration changes are role-restricted, dual-approved, and logged.
+
+## 6. Definition of done (epic level)
+
+1. All Gherkin scenarios automated and passing in CI.
+2. Compliance sign-off on rule mapping, citation verification, and the open items in section 2.
+3. Parallel run against production deposits shows no unexplained variance against the legacy engine, or each variance is documented and approved.
+4. Operations runbook covers release-job failure and manual review queues.
+5. Disclosure and hold-notice owners confirm customer-facing documents match engine behavior.
+
+## 7. Suggested delivery sequence
+
+1. US-02 and US-10 (calendar and configuration foundation)
+2. US-01, US-03, US-04, US-09, US-12
+3. US-05, US-06, US-07
+4. US-08 (needs a Compliance decision on aggregation scope)
+5. US-11 (integration with the exception-hold epic)
+
+---
+
+**Sources:** Threshold values from the Federal Reserve and CFPB final rule (effective July 1, 2025, with the $275 minimum amount under §229.10(c)(1)(vii)), and the requirement that the agencies adjust the dollar thresholds every five years.
+
+- [Federal Register: Availability of Funds and Collection of Checks (Docket R-1832)](https://www.federalregister.gov/documents/2024/05/20/2024-10844/availability-of-funds-and-collection-of-checks)
+- [ABA Banking Journal: new Reg CC thresholds](https://bankingjournal.aba.com/2024/05/fed-cpfb-announce-new-thresholds-for-regulation-cc-funds-availability/)
+- [eCFR: 12 CFR 229.10](https://www.ecfr.gov/current/title-12/chapter-II/subchapter-A/part-229/subpart-B/section-229.10)
+
+I'm a model, not a compliance attorney. Have Compliance confirm the paragraph-level citations and the open policy items before this goes to build.

@@ -1,0 +1,907 @@
+# **Business requirements: Regulation CC next-day availability**
+
+**12 CFR § 229.10 — Deposit Hold Engine Implementation**
+
+Regulatory compliance
+
+Business requirements
+
+Deposit operations
+
+## **1. Business objective**
+
+Implement Regulation CC next-day availability requirements in the bank's deposit hold engine to ensure that eligible deposits receive the required funds availability, regardless of the standard or exception hold rules configured for the account.
+
+The deposit hold engine must identify deposits subject to mandatory next-business-day availability, calculate the required availability date, apply the appropriate availability amount, and prevent conflicting hold rules from delaying funds beyond the regulatory deadline.
+
+**Regulatory reference:** 12 CFR § 229.10, Next-day availability.
+
+**Important implementation assumption:** The requirements below use the Regulation CC threshold effective July 1, 2025: **$275 for the first-day availability requirement** under § 229.10(c)(1)(vii). The bank should validate this threshold against the applicable regulatory schedule and effective date before production deployment.
+
+## **2. Scope and regulatory requirements**
+
+The implementation should address the following categories:
+
+| Deposit category                            | Regulatory treatment                                                             |
+| ------------------------------------------- | -------------------------------------------------------------------------------- |
+| Electronic payments                         | Availability no later than the business day following the banking day of receipt |
+| Cash deposited in person to a bank employee | Next-business-day availability                                                   |
+| U.S. Treasury checks                        | Next-business-day availability, subject to eligibility requirements              |
+| U.S. Postal Service money orders            | Next-business-day availability, subject to eligibility requirements              |
+| State and local government checks           | Next-business-day availability, subject to eligibility requirements              |
+| Cashier's checks                            | Next-business-day availability, subject to eligibility requirements              |
+| Certified checks                            | Next-business-day availability, subject to eligibility requirements              |
+| Teller's checks                             | Next-business-day availability, subject to eligibility requirements              |
+| First $275 of qualifying check deposits     | Next-business-day availability under § 229.10(c)(1)(vii)                         |
+
+The engine must also account for the eligibility conditions in § 229.10(c), including payee, endorsement, deposit method, and account requirements where applicable.
+
+The implementation must distinguish mandatory next-day availability from the bank's standard funds availability policy and applicable exception-hold provisions under § 229.13.
+
+## **3. Epic: Regulation CC next-day availability**
+
+**Epic ID:** DEP-REGCC-001
+
+**Epic description:** As a bank, we need the deposit hold engine to identify deposits qualifying for next-day availability under Regulation CC § 229.10, so that customers receive access to funds within the required regulatory timeframe.
+
+**Business outcomes:**
+
+- Comply with mandatory next-day funds availability.
+- Prevent standard and exception holds from improperly delaying qualifying funds.
+- Apply the $275 first-day availability requirement correctly.
+- Support business-day, holiday, and cutoff calculations.
+- Maintain an auditable record of availability decisions.
+- Support regulatory reporting and compliance testing.
+
+# **4. User stories and Gherkin acceptance criteria**
+
+## **US-001: Identify deposits eligible for next-day availability**
+
+**Priority:** Critical
+
+**As a** deposit operations system,\
+**I want** to identify deposits qualifying for next-day availability under Regulation CC § 229.10,\
+**So that** the correct availability treatment is applied before calculating deposit holds.
+
+### **Acceptance criteria**
+
+**AC-001.1 — Identify eligible deposit categories**
+
+```
+Feature: Identify Regulation CC next-day eligible deposits
+
+  Scenario Outline: Identify deposits qualifying for next-day availability
+    Given a customer deposits funds into an eligible account
+    And the deposit has been classified as "<deposit_type>"
+    And all applicable regulatory eligibility conditions are satisfied
+    When the deposit hold engine evaluates the deposit
+    Then the deposit must be classified as "REG_CC_NEXT_DAY"
+    And the applicable next-business-day availability rule must be selected
+
+    Examples:
+      | deposit_type              |
+      | Electronic payment        |
+      | Cash deposit              |
+      | US Treasury check         |
+      | USPS money order          |
+      | State government check    |
+      | Local government check    |
+      | Cashier's check           |
+      | Certified check           |
+      | Teller's check            |
+      | On-us check               |
+```
+
+**AC-001.2 — Ineligible deposits**
+
+```
+Scenario: Deposit does not qualify for mandatory next-day treatment
+  Given a deposit is not eligible under Regulation CC 229.10
+  When the deposit hold engine evaluates the deposit
+  Then the deposit must not be classified as REG_CC_NEXT_DAY
+  And the standard funds availability rules must be evaluated
+  And any applicable exception hold rules must be evaluated
+```
+
+**AC-001.3 — Missing deposit classification**
+
+```
+Scenario: Deposit classification is missing
+  Given a deposit is received without a valid deposit classification
+  When the deposit hold engine evaluates the deposit
+  Then the engine must not assume the deposit is eligible for next-day availability
+  And the deposit must be routed for classification or exception handling
+  And the evaluation outcome must be recorded
+```
+
+**Business rule:** Eligibility must be determined using the applicable regulatory conditions, not solely the deposit instrument description. For example, the system must consider whether the check is payable to the depositor and whether the required deposit and endorsement conditions have been met.
+
+## **US-002: Calculate next-business-day availability date**
+
+**Priority:** Critical
+
+**As a** deposit operations system,\
+**I want** to calculate the next-business-day availability date for qualifying deposits,\
+**So that** customer funds become available within the timeframe mandated by Regulation CC.
+
+### **Acceptance criteria**
+
+**AC-002.1 — Regular business-day deposit**
+
+```
+Feature: Calculate next-business-day availability
+
+  Scenario: Eligible deposit received on Monday
+    Given Monday is a banking business day
+    And the deposit qualifies under Regulation CC 229.10
+    And the deposit is received before the applicable cutoff
+    When the engine calculates the availability date
+    Then the required availability date must be Tuesday
+```
+
+**AC-002.2 — Friday deposit**
+
+```
+Scenario: Eligible deposit received on Friday
+  Given Friday is a banking business day
+  And the deposit qualifies under Regulation CC 229.10
+  And the deposit is received before the applicable cutoff
+  When the engine calculates the availability date
+  Then the required availability date must be Monday
+```
+
+**AC-002.3 — Holiday processing**
+
+```
+Scenario: Deposit received before a banking holiday
+  Given Monday is a federal banking holiday
+  And the deposit qualifies under Regulation CC 229.10
+  And the deposit is received on Friday
+  When the engine calculates the availability date
+  Then the required availability date must be Tuesday
+```
+
+**AC-002.4 — Deposit received after cutoff**
+
+```
+Scenario: Deposit received after the applicable cutoff
+  Given a qualifying deposit is received after the applicable cutoff
+  When the engine determines the banking day of receipt
+  Then the engine must apply the applicable Regulation CC receipt-day rules
+  And calculate availability based on the banking day of receipt
+  And record the original receipt timestamp
+```
+
+**AC-002.5 — Multiple banking calendars**
+
+```
+Scenario: Apply the appropriate banking calendar
+  Given a qualifying deposit is received through a supported deposit channel
+  And the channel has an applicable banking-day calendar
+  When the engine calculates the availability date
+  Then the engine must use the applicable banking-day calendar
+  And exclude Saturdays, Sundays, and applicable federal holidays
+  And calculate the required availability date correctly
+```
+
+**Business rule:** The system must distinguish the date a transaction is received from the date it is considered received for Regulation CC purposes. Cutoff times, depositary bank location, channel-specific rules, and calendar configurations must be incorporated into the calculation.
+
+## **US-003: Apply next-day availability to electronic payments**
+
+**Priority:** Critical
+
+**As a** deposit operations system,\
+**I want** qualifying electronic payments to receive the required next-business-day availability treatment,\
+**So that** electronic deposits are not subjected to inappropriate check-deposit holds.
+
+### **Acceptance criteria**
+
+**AC-003.1 — Electronic payment received**
+
+```
+Feature: Electronic payment availability
+
+  Scenario: Qualifying electronic payment received
+    Given an electronic payment is received by the bank
+    And the payment qualifies under Regulation CC 229.10(a)
+    When the payment is processed by the deposit hold engine
+    Then the required funds must be available
+      no later than the next business day
+      following the banking day of receipt
+    And the payment must not be subjected to an ordinary check hold
+```
+
+**AC-003.2 — Electronic payment hold prevention**
+
+```
+Scenario: Prevent check holds on qualifying electronic payments
+  Given a deposit is classified as a qualifying electronic payment
+  And the account has a standard two-business-day check hold configuration
+  When the deposit hold engine evaluates the payment
+  Then the standard check hold must not be applied
+  And the required electronic payment availability date must be enforced
+```
+
+**AC-003.3 — Electronic payment received on a nonbusiness day**
+
+```
+Scenario: Electronic payment received on a nonbusiness day
+  Given an electronic payment is received on a Saturday
+  And Saturday is not a banking business day
+  When the bank determines the banking day of receipt
+  Then the engine must apply the applicable receipt-day rules
+  And calculate availability using the next business day after that banking day
+```
+
+## **US-004: Apply next-day availability to cash deposits**
+
+**Priority:** High
+
+**As a** deposit operations system,\
+**I want** to recognize qualifying cash deposits made in person to a bank employee,\
+**So that** the funds receive the availability required under Regulation CC § 229.10(b).
+
+### **Acceptance criteria**
+
+**AC-004.1 — Cash deposited in person**
+
+```
+Feature: Cash deposit next-day availability
+
+  Scenario: Cash deposited with a bank employee
+    Given a customer deposits cash into an eligible account
+    And the cash is deposited in person to a bank employee
+    When the deposit hold engine evaluates the transaction
+    Then the deposit must qualify for next-business-day availability
+    And the required availability date must be calculated
+    And the standard check hold must not be applied
+```
+
+**AC-004.2 — Cash deposit through an ATM**
+
+```
+Scenario: Cash deposited through an ATM
+  Given a customer deposits cash through an ATM
+  When the deposit hold engine evaluates the transaction
+  Then the engine must evaluate the applicable ATM and Regulation CC rules
+  And must not automatically classify the deposit as cash deposited in person to a bank employee
+```
+
+## **US-005: Apply next-day availability to qualifying checks**
+
+**Priority:** Critical
+
+**As a** deposit operations system,\
+**I want** to identify qualifying checks entitled to next-day availability,\
+**So that** the customer receives access to those funds in accordance with Regulation CC § 229.10(c).
+
+### **Acceptance criteria**
+
+**AC-005.1 — Qualifying Treasury check**
+
+```
+Feature: Next-day availability for qualifying checks
+
+  Scenario: Customer deposits an eligible US Treasury check
+    Given a customer deposits a US Treasury check
+    And the check is payable to the customer
+    And the applicable regulatory deposit and endorsement conditions are satisfied
+    When the deposit hold engine evaluates the check
+    Then the check must qualify for next-business-day availability
+    And the required availability date must be calculated
+```
+
+**AC-005.2 — Qualifying government check**
+
+```
+Scenario Outline: Qualifying government check
+  Given a customer deposits a "<check_type>"
+  And the customer satisfies the applicable payee requirements
+  And the applicable regulatory deposit conditions are satisfied
+  When the deposit hold engine evaluates the check
+  Then the check must receive next-business-day availability
+
+  Examples:
+    | check_type                  |
+    | US Treasury check            |
+    | USPS money order             |
+    | State government check       |
+    | Local government check       |
+```
+
+**AC-005.3 — Qualifying cashier's, certified, or teller's check**
+
+```
+Scenario Outline: Qualifying official check
+  Given a customer deposits a "<check_type>"
+  And the check meets the applicable Regulation CC requirements
+  When the deposit hold engine evaluates the check
+  Then the check must qualify for next-business-day availability
+
+  Examples:
+    | check_type       |
+    | Cashier's check  |
+    | Certified check  |
+    | Teller's check   |
+```
+
+**AC-005.4 — Check drawn on the same bank**
+
+```
+Scenario: Deposit of a qualifying on-us check
+  Given a customer deposits a check drawn on the same bank
+  And the check meets the applicable regulatory conditions
+  When the deposit hold engine evaluates the check
+  Then the check must receive the availability treatment required by Regulation CC
+```
+
+**AC-005.5 — Ineligible official check**
+
+```
+Scenario: Official check does not satisfy regulatory conditions
+  Given a customer deposits a cashier's check
+  And one or more applicable eligibility requirements are not satisfied
+  When the deposit hold engine evaluates the check
+  Then the check must not automatically receive mandatory next-day treatment
+  And the applicable standard or exception hold rules must be evaluated
+  And the eligibility failure reason must be recorded
+```
+
+## **US-006: Apply the first $275 next-day availability requirement**
+
+**Priority:** Critical
+
+**As a** deposit operations system,\
+**I want** to make the first $275 of qualifying check deposits available by the next business day,\
+**So that** the bank complies with the minimum next-day availability requirement under § 229.10(c)(1)(vii).
+
+### **Acceptance criteria**
+
+**AC-006.1 — Deposit amount exceeds $275**
+
+```
+Feature: First $275 next-day availability
+
+  Scenario: Customer deposits a qualifying check for more than $275
+    Given a customer deposits a qualifying check for $1,000
+    And the deposit is subject to the first-day availability requirement
+    When the deposit hold engine calculates availability
+    Then $275 must be available no later than the next business day
+    And the remaining $725 must be evaluated under the applicable availability rules
+```
+
+**AC-006.2 — Deposit amount below $275**
+
+```
+Scenario: Customer deposits a qualifying check below $275
+  Given a customer deposits a qualifying check for $200
+  When the deposit hold engine calculates availability
+  Then the entire $200 must be available no later than the next business day
+```
+
+**AC-006.3 — Deposit amount equals $275**
+
+```
+Scenario: Customer deposits a qualifying check for exactly $275
+  Given a customer deposits a qualifying check for $275
+  When the deposit hold engine calculates availability
+  Then the entire $275 must be available no later than the next business day
+```
+
+**AC-006.4 — Multiple checks deposited on the same banking day**
+
+```
+Scenario: Multiple qualifying checks deposited on the same banking day
+  Given a customer makes multiple check deposits on the same banking day
+  And the deposits are subject to the first-day availability requirement
+  When the deposit hold engine calculates the aggregate first-day amount
+  Then the engine must calculate the first $275
+    using the applicable daily aggregation rules
+  And must not independently apply a $275 allowance
+    to each individual check
+```
+
+**AC-006.5 — Multiple deposit channels**
+
+```
+Scenario: Aggregate qualifying deposits across deposit channels
+  Given a customer makes qualifying check deposits through multiple channels
+  And the deposits are received on the same banking day
+  When the deposit hold engine calculates the first-day availability amount
+  Then the engine must apply the applicable aggregation rules
+  And prevent duplicate first-day availability allowances
+```
+
+**AC-006.6 — Regulatory threshold configuration**
+
+```
+Scenario: Apply the effective regulatory threshold
+  Given the regulatory threshold is configured as $275
+  And the threshold effective date is July 1, 2025
+  When the engine evaluates a qualifying deposit on or after that date
+  Then the engine must use $275 for the first-day availability calculation
+  And the threshold must be retrieved from effective-dated configuration
+  And the applicable threshold version must be recorded
+```
+
+**Business rule:** The $275 requirement is an aggregate daily requirement, not an additional $275 allowance for each check. The engine must also account for the specific interaction between § 229.10 and exceptions under § 229.13, including new-account treatment and qualifying check categories.
+
+## **US-007: Prevent conflicting standard and exception holds**
+
+**Priority:** Critical
+
+**As a** deposit operations system,\
+**I want** mandatory Regulation CC availability rules to take precedence over conflicting standard hold configurations,\
+**So that** eligible funds are not held beyond the regulatory deadline.
+
+### **Acceptance criteria**
+
+**AC-007.1 — Standard hold conflicts with next-day availability**
+
+```
+Feature: Next-day availability rule precedence
+
+  Scenario: Standard hold conflicts with mandatory next-day availability
+    Given a customer account has a standard two-business-day hold
+    And the customer deposits a qualifying next-day availability check
+    When the deposit hold engine evaluates the deposit
+    Then the qualifying amount must be available by the next business day
+    And the standard hold must not delay that amount
+    And any remaining amount must follow applicable availability rules
+```
+
+**AC-007.2 — Large deposit exception**
+
+```
+Scenario: Large deposit exception applies
+  Given a customer makes qualifying check deposits
+  And the aggregate daily deposit amount exceeds the applicable
+      large deposit exception threshold
+  When the deposit hold engine evaluates the deposit
+  Then the engine must identify the applicable large deposit exception
+  And must preserve the availability required under Section 229.10
+  And must calculate any permissible additional hold
+      under Section 229.13
+```
+
+**AC-007.3 — New account exception**
+
+```
+Scenario: Deposit made to a new account
+  Given a customer deposits a qualifying check into a new account
+  And the account qualifies for the new account exception under Section 229.13
+  When the deposit hold engine evaluates the check
+  Then the engine must apply the applicable new account exception rules
+  And must identify check categories that retain mandatory next-day treatment
+  And must not automatically apply the standard $275 treatment
+      without evaluating the new account exception
+```
+
+**AC-007.4 — Repeated overdrafts exception**
+
+```
+Scenario: Repeated overdrafts exception applies
+  Given a customer account qualifies for an applicable repeated overdrafts exception
+  And a qualifying check is deposited
+  When the deposit hold engine evaluates the deposit
+  Then the engine must evaluate the applicable Section 229.13 exception
+  And apply only the holds permitted by Regulation CC
+  And preserve any availability that remains mandatory
+```
+
+**AC-007.5 — Emergency exception**
+
+```
+Scenario: Emergency exception is activated
+  Given the bank has an approved emergency exception
+  And the emergency exception is applicable to the deposit
+  When the deposit hold engine evaluates the deposit
+  Then the engine must apply the authorized emergency availability treatment
+  And record the applicable exception reason
+  And retain the regulatory and operational audit trail
+```
+
+**Important design consideration:** Do not implement a simplistic rule that § 229.10 always overrides § 229.13. Certain § 229.13 exceptions modify the normal availability requirements. The engine needs a regulatory decision matrix that evaluates the applicable exception, the deposit category, and any funds that remain protected by next-day requirements.
+
+## **US-008: Support partial availability and multiple hold components**
+
+**Priority:** High
+
+**As a** deposit operations system,\
+**I want** to split deposits into regulatory availability components,\
+**So that** different portions of a deposit can have different availability dates.
+
+### **Acceptance criteria**
+
+**AC-008.1 — Partial deposit availability**
+
+```
+Feature: Partial funds availability
+
+  Scenario: Deposit contains funds with different availability dates
+    Given a customer deposits a qualifying check for $2,000
+    And $275 qualifies for next-day availability
+    And the remaining $1,725 is subject to a permissible hold
+    When the deposit hold engine creates the hold schedule
+    Then $275 must be assigned the next-business-day availability date
+    And $1,725 must be assigned the applicable subsequent availability date
+    And the total scheduled amount must equal $2,000
+```
+
+**AC-008.2 — No duplicate availability**
+
+```
+Scenario: Prevent duplicate availability allocations
+  Given a deposit has been divided into multiple availability components
+  When the deposit hold engine calculates the availability schedule
+  Then no dollar amount may be made available more than once
+  And the sum of all availability components must equal the deposit amount
+```
+
+**AC-008.3 — Deposit amount reconciliation**
+
+```
+Scenario: Reconcile deposit hold components
+  Given a deposit has multiple hold components
+  When the availability schedule is generated
+  Then the sum of all available and held amounts must equal the original deposit amount
+  And no component may have a negative amount
+  And the schedule must pass financial reconciliation
+```
+
+## **US-009: Maintain effective-dated regulatory configuration**
+
+**Priority:** High
+
+**As a** regulatory configuration administrator,\
+**I want** Regulation CC thresholds, eligibility rules, and effective dates to be configurable,\
+**So that** regulatory changes can be implemented without requiring application code changes.
+
+### **Acceptance criteria**
+
+**AC-009.1 — Configure first-day availability threshold**
+
+```
+Feature: Regulation CC configuration management
+
+  Scenario: Configure the first-day availability threshold
+    Given an authorized administrator accesses regulatory configuration
+    When the administrator configures the first-day availability threshold
+    Then the system must accept the approved threshold amount
+    And require an effective date
+    And retain the previous configuration
+```
+
+**AC-009.2 — Effective-dated configuration**
+
+```
+Scenario: Apply the correct regulatory threshold based on effective date
+  Given the bank maintains multiple threshold configurations
+  And each configuration has an effective date
+  When a deposit is evaluated
+  Then the engine must select the configuration
+      applicable to the regulatory evaluation date
+  And must not apply a future configuration prematurely
+```
+
+**AC-009.3 — Configuration authorization**
+
+```
+Scenario: Unauthorized user attempts to change a threshold
+  Given a user does not have regulatory configuration privileges
+  When the user attempts to change the threshold
+  Then the system must reject the change
+  And record the unauthorized access attempt
+```
+
+**AC-009.4 — Configuration audit**
+
+```
+Scenario: Regulatory configuration is modified
+  Given an authorized administrator changes a regulatory parameter
+  When the configuration is saved
+  Then the system must record the previous value
+  And record the new value
+  And record the effective date
+  And record the administrator identity
+  And record the change timestamp
+  And retain the change history
+```
+
+## **US-010: Provide an auditable availability decision**
+
+**Priority:** High
+
+**As a** compliance officer,\
+**I want** every deposit availability decision to have a traceable regulatory rationale,\
+**So that** the bank can demonstrate compliance with Regulation CC.
+
+### **Acceptance criteria**
+
+**AC-010.1 — Record eligibility decision**
+
+```
+Feature: Regulatory decision audit
+
+  Scenario: Eligible deposit is evaluated
+    Given a deposit qualifies for next-day availability
+    When the deposit hold engine evaluates the deposit
+    Then the system must record:
+      | Audit field                  |
+      | Deposit transaction ID       |
+      | Customer account ID          |
+      | Deposit amount               |
+      | Deposit type                 |
+      | Deposit channel              |
+      | Banking day of receipt       |
+      | Regulatory classification    |
+      | Applicable regulation        |
+      | Required availability date   |
+      | Actual scheduled availability|
+      | Hold amount                  |
+      | Rule or configuration ID     |
+      | Evaluation timestamp         |
+```
+
+**AC-010.2 — Record ineligibility reason**
+
+```
+Scenario: Deposit does not qualify for next-day availability
+  Given a deposit fails a regulatory eligibility condition
+  When the deposit hold engine evaluates the deposit
+  Then the system must record the ineligibility reason
+  And identify the applicable availability rule
+  And retain the decision for audit purposes
+```
+
+**AC-010.3 — Reconstruct historical decision**
+
+```
+Scenario: Compliance reconstructs a historical deposit decision
+  Given a deposit was processed on a previous banking day
+  When an authorized compliance user requests the decision history
+  Then the system must retrieve the original deposit attributes
+  And the regulatory configuration effective at the time
+  And the eligibility decision
+  And the original availability schedule
+  And any subsequent changes to that schedule
+```
+
+## **US-011: Prevent availability dates from exceeding regulatory requirements**
+
+**Priority:** Critical
+
+**As a** deposit operations system,\
+**I want** to validate the calculated availability date against the regulatory deadline,\
+**So that** the engine cannot inadvertently schedule mandatory funds availability beyond the permitted date.
+
+### **Acceptance criteria**
+
+**AC-011.1 — Availability date validation**
+
+```
+Feature: Regulatory availability validation
+
+  Scenario: Calculated availability exceeds regulatory deadline
+    Given a deposit qualifies for mandatory next-day availability
+    And the engine calculates an availability date later than
+        the regulatory deadline
+    When the availability schedule is validated
+    Then the system must reject the schedule
+    And recalculate the availability date
+    And record the validation failure
+```
+
+**AC-011.2 — Hold engine integration**
+
+```
+Scenario: Downstream system attempts to extend a mandatory hold
+  Given a qualifying deposit has an established next-day availability date
+  When a downstream hold process attempts to extend the hold
+  Then the system must validate the requested extension
+  And reject any extension that violates applicable Regulation CC requirements
+  And record the rejected hold modification
+```
+
+**AC-011.3 — Availability schedule changes**
+
+```
+Scenario: Deposit availability schedule is recalculated
+  Given an availability schedule has already been established
+  When the deposit is reevaluated due to a transaction update
+  Then the engine must recalculate the applicable regulatory deadline
+  And must not extend mandatory availability beyond the permitted deadline
+  And must retain the original and revised schedules
+```
+
+## **US-012: Support operational monitoring and exception reporting**
+
+**Priority:** Medium
+
+**As a** deposit operations manager,\
+**I want** to monitor next-day availability decisions and exceptions,\
+**So that** operational teams can identify and resolve potential regulatory compliance issues.
+
+### **Acceptance criteria**
+
+**AC-012.1 — Next-day availability report**
+
+```
+Feature: Next-day availability monitoring
+
+  Scenario: Generate next-day availability report
+    Given qualifying deposits have been processed
+    When an authorized user generates the Regulation CC report
+    Then the report must include:
+      | Report field                 |
+      | Deposit transaction ID       |
+      | Account identifier           |
+      | Deposit date                 |
+      | Deposit amount               |
+      | Deposit classification       |
+      | Next-day required amount     |
+      | Actual available amount      |
+      | Required availability date   |
+      | Actual availability date     |
+      | Regulatory rule applied      |
+```
+
+**AC-012.2 — Identify potential violations**
+
+```
+Scenario: Identify deposits scheduled beyond regulatory deadline
+  Given deposits have been evaluated by the hold engine
+  When the compliance monitoring process executes
+  Then deposits scheduled beyond their applicable regulatory deadlines
+       must be identified
+  And the affected transactions must be placed on an exception report
+  And the report must include the amount and duration of the delay
+```
+
+**AC-012.3 — Reporting by deposit channel**
+
+```
+Scenario Outline: Report next-day availability by channel
+  Given deposits have been processed through "<channel>"
+  When an authorized user generates the channel availability report
+  Then the report must include the qualifying deposits
+  And show the required and actual availability dates
+
+  Examples:
+    | channel          |
+    | Branch           |
+    | ATM              |
+    | Mobile           |
+    | Remote deposit   |
+    | ACH              |
+    | Wire             |
+```
+
+# **5. Non-functional requirements**
+
+In addition to the functional stories, the following requirements should be included in the implementation.
+
+| ID      | Requirement          | Expected behavior                                                                                       |
+| ------- | -------------------- | ------------------------------------------------------------------------------------------------------- |
+| NFR-001 | Accuracy             | Availability calculations must comply with applicable Regulation CC deadlines.                          |
+| NFR-002 | Performance          | Eligibility and availability calculations must complete within the deposit processing SLA.              |
+| NFR-003 | Auditability         | All regulatory decisions must be traceable to the rule and configuration version used.                  |
+| NFR-004 | Configuration        | Regulatory thresholds and effective dates must be configurable without code deployment.                 |
+| NFR-005 | Idempotency          | Reprocessing a deposit must not duplicate availability credits or allowances.                           |
+| NFR-006 | Reconciliation       | Deposit amounts must reconcile to available and held amounts.                                           |
+| NFR-007 | Resilience           | Failure of the regulatory rules service must not silently result in an incorrect availability schedule. |
+| NFR-008 | Security             | Only authorized users may modify regulatory configuration.                                              |
+| NFR-009 | Monitoring           | Potential regulatory deadline violations must generate actionable alerts.                               |
+| NFR-010 | Historical retrieval | Historical availability decisions must be reproducible using the original effective-dated rules.        |
+
+# **6. Recommended business rule precedence**
+
+The following is a proposed decision framework for the deposit hold engine. It should be validated against the complete applicable Regulation CC requirements before implementation.
+
+## **Deposit availability decision flow**
+
+**1. Receive deposit**
+
+Capture account, amount, instrument, channel and receipt timestamp
+
+**2. Determine Regulation CC eligibility**
+
+Evaluate § 229.10(a), (b), and (c)
+
+**3. Evaluate applicable exceptions**
+
+Evaluate new accounts, large deposits, repeated overdrafts and emergency exceptions under § 229.13
+
+**4. Calculate required availability**
+
+Apply protected next-day amounts and any permissible exception holds
+
+**5. Generate availability schedule**
+
+Assign amounts and availability dates to each deposit component
+
+**6. Validate and audit**
+
+Validate regulatory deadlines, reconcile amounts and record the decision
+
+# **7. Key business rules for developers**
+
+I recommend explicitly documenting these as centralized rules rather than embedding them separately in individual deposit channel implementations.
+
+| Rule ID | Business rule                                                                                                             |
+| ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| BR-001  | The engine must identify qualifying deposits under § 229.10.                                                              |
+| BR-002  | Electronic payments must follow § 229.10(a).                                                                              |
+| BR-003  | Qualifying cash deposits must follow § 229.10(b).                                                                         |
+| BR-004  | Qualifying check deposits must follow § 229.10(c).                                                                        |
+| BR-005  | The first $275 availability requirement must be calculated using the applicable daily aggregation rules.                  |
+| BR-006  | The threshold must be effective-dated and configurable.                                                                   |
+| BR-007  | Availability dates must use the applicable Regulation CC banking-day and receipt-day rules.                               |
+| BR-008  | The engine must evaluate applicable § 229.13 exceptions before finalizing the availability schedule.                      |
+| BR-009  | Deposit holds must be calculated at the deposit-component level when different amounts have different availability dates. |
+| BR-010  | Every availability decision must be auditable and reproducible.                                                           |
+
+# **8. Recommended QA test scenarios**
+
+These are particularly important for regulatory UAT.
+
+| Test ID | Scenario                                                           | Expected result                                             |
+| ------- | ------------------------------------------------------------------ | ----------------------------------------------------------- |
+| TC-001  | $1,000 qualifying check deposited Monday                           | $275 available Tuesday                                      |
+| TC-002  | $200 qualifying check deposited Monday                             | $200 available Tuesday                                      |
+| TC-003  | $275 qualifying check deposited Monday                             | $275 available Tuesday                                      |
+| TC-004  | $5,000 qualifying check deposited Friday                           | $275 available Monday                                       |
+| TC-005  | Multiple qualifying checks totaling $1,000 on the same banking day | Aggregate first-day availability correctly calculated       |
+| TC-006  | Qualifying electronic payment received Monday                      | Available by Tuesday                                        |
+| TC-007  | Qualifying cash deposited in person Monday                         | Available by Tuesday                                        |
+| TC-008  | Qualifying Treasury check                                          | Next-day treatment                                          |
+| TC-009  | Standard two-day hold configured                                   | Mandatory next-day amount protected                         |
+| TC-010  | New account exception applies                                      | Correct new-account treatment                               |
+| TC-011  | Large deposit exception applies                                    | Correct exception treatment and protected amounts           |
+| TC-012  | Deposit received before a federal banking holiday                  | Correct next-business-day calculation                       |
+| TC-013  | Deposit received after applicable cutoff                           | Correct banking-day-of-receipt determination                |
+| TC-014  | Duplicate deposit processing                                       | No duplicate availability                                   |
+| TC-015  | Historical deposit reevaluated                                     | Original effective-dated regulatory configuration retrieved |
+
+# **9. Regulatory and implementation considerations**
+
+Before finalizing the requirements for development sign-off, I would call out five important considerations.
+
+1\. **Do not confuse next-day availability with same-day availability.** Section 229.10 generally requires availability by the next business day for the covered categories. Electronic payments have their own receipt and availability rules.
+
+2\. **Do not apply $275 independently to every check.** The first-day availability requirement is subject to aggregate daily calculation rules.
+
+3\. **Do not assume every government or official check automatically qualifies.** The applicable payee, endorsement, deposit-method and other eligibility conditions must be validated.
+
+4\. **Do not treat § 229.10 and § 229.13 as mutually exclusive.** The engine must implement the interaction between mandatory availability and permissible exception holds, including the special treatment of new accounts.
+
+5\. **Do not hardcode regulatory thresholds.** Maintain effective-dated regulatory parameters so future threshold adjustments can be implemented accurately.
+
+The final implementation should also be reviewed against the bank's Regulation CC disclosures, operational procedures, and applicable state-law requirements.
+
+# **10. Recommended delivery breakdown**
+
+I would organize the development work into these implementation increments:
+
+| Sprint / increment | Scope                                                | Priority |
+| ------------------ | ---------------------------------------------------- | -------- |
+| 1                  | Deposit classification and eligibility               | Critical |
+| 2                  | Banking-day and next-day calculations                | Critical |
+| 3                  | Electronic payments and cash deposits                | Critical |
+| 4                  | Qualifying check types and $275 calculation          | Critical |
+| 5                  | Exception hold interaction and precedence            | Critical |
+| 6                  | Partial availability and hold scheduling             | High     |
+| 7                  | Regulatory configuration and audit trail             | High     |
+| 8                  | Monitoring, reporting and reconciliation             | Medium   |
+| 9                  | End-to-end regression, UAT and compliance validation | Critical |
+
+**My recommendation:** Make US-001 through US-007 the core regulatory implementation scope. Do not consider the project ready for production until the exception-hold interaction, daily aggregation, banking-day calculation, and historical audit scenarios have passed compliance UAT.
+
+The governing regulatory references for the requirements document should include:
+
+- [12 CFR § 229.10 — Next-day availability](https://www.ecfr.gov/current/title-12/chapter-II/subchapter-A/part-229/section-229.10?utm_source=chatgpt.com)
+- [12 CFR § 229.13 — Exceptions](https://www.ecfr.gov/current/title-12/chapter-II/subchapter-A/part-229/section-229.13?utm_source=chatgpt.com)
+- [12 CFR § 229.12 — Availability schedule](https://www.ecfr.gov/current/title-12/chapter-II/subchapter-A/part-229/section-229.12?utm_source=chatgpt.com)
+- [12 CFR § 229.19 — Miscellaneous provisions](https://www.ecfr.gov/current/title-12/chapter-II/subchapter-A/part-229/section-229.19?utm_source=chatgpt.com)
+
+These stories provide a starting point for a business requirements document and Jira backlog. The legal/compliance team should validate the precise rule matrix and effective-date treatment before the stories are baselined.

@@ -1,0 +1,213 @@
+To implement Regulation CC next-day availability (**12 CFR § 229.10**) in our deposit hold engine, the stories below break down the statutory requirements into core engine rules. Note that under § 229.10(c)(1)(vii), the minimum next-day availability floor for non-exempt checks (the "$225 rule," inflation-adjusted to **$275** effective July 1, 2025) must also be accounted for alongside full next-day items.
+
+---
+
+### Epic: Reg CC Next-Day Funds Availability (12 CFR § 229.10)
+
+#### Story 1: Electronic Payments and Cash Deposits (12 CFR § 229.10(a)–(b))
+
+**As a** Deposit Operations Manager
+
+**I want** cash deposits made in person and electronic payments (wire transfers and ACH credit transfers) to be granted immediate or next-business-day availability
+
+**So that** the bank complies with 12 CFR § 229.10(a) and § 229.10(b) without placing improper holds on settled funds.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Next-Day Availability for Cash and Electronic Payments
+
+  Scenario: Cash deposited in person to a bank employee
+    Given a customer has an open transaction account
+    When the customer deposits $5,000.00 in cash to a teller on Business Day T
+    Then the hold engine shall apply a 0-day hold
+    And the full $5,000.00 shall be available no later than the start of Business Day T+1
+
+  Scenario: Cash deposited at a proprietary ATM (not in person to an employee)
+    Given a customer has an open transaction account
+    When the customer deposits $1,200.00 in cash at a proprietary ATM on Business Day T before the cutoff time
+    Then the hold engine shall apply a hold releasing funds no later than Business Day T+2 per 12 CFR 229.10(a)(2)
+
+  Scenario: Incoming wire transfer or ACH credit received
+    Given a customer has an open transaction account
+    When an incoming Fedwire or ACH credit of $15,000.00 is received by the bank on Business Day T
+    Then the hold engine shall apply a 0-day hold
+    And the full $15,000.00 shall be available no later than the start of Business Day T+1
+
+```
+
+---
+
+#### Story 2: U.S. Treasury, USPS Money Orders, and Federal Reserve / FHLB Checks (12 CFR § 229.10(c)(1)(i)–(iii))
+
+**As a** Compliance Officer
+
+**I want** U.S. Treasury checks, U.S. Postal Service money orders, and checks drawn on a Federal Reserve Bank or Federal Home Loan Bank to receive full next-business-day availability when deposited into the payee's account
+
+**So that** federal and quasi-federal instruments meet mandatory Reg CC availability timelines.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Next-Day Availability for Federal Instruments
+
+  Scenario: U.S. Treasury check deposited into the payee's account
+    Given a U.S. Treasury check for $3,400.00 is payable to the account holder
+    And the check is deposited in person or at a proprietary ATM on Business Day T
+    When the hold engine evaluates the deposit
+    Then the engine shall grant next-business-day availability (T+1) for the full $3,400.00
+
+  Scenario: USPS Money Order or Federal Reserve/FHLB check deposited in person to an employee
+    Given a USPS money order or FHLB check for $850.00 is payable to the account holder
+    And the item is deposited in person to a bank employee on Business Day T
+    When the hold engine evaluates the deposit
+    Then the engine shall grant next-business-day availability (T+1) for the full $850.00
+
+  Scenario: USPS Money Order deposited at an ATM (not in person to an employee)
+    Given a USPS money order for $850.00 is payable to the account holder
+    And the item is deposited at a proprietary ATM on Business Day T
+    When the hold engine evaluates the deposit
+    Then the engine shall NOT classify the item for mandatory T+1 availability under 229.10(c)(1)(ii)
+    And the item shall fall through to standard local check availability rules
+
+```
+
+---
+
+#### Story 3: State/Local Government Checks and Cashier's, Certified, and Teller's Checks (12 CFR § 229.10(c)(1)(iv)–(v))
+
+**As a** Deposit Operations Manager
+
+**I want** state/local government checks and cashier's, certified, or teller's checks to receive next-day availability only when all statutory conditions (payee match, in-person deposit, geographic/bank location, and special deposit slip if required) are met
+
+**So that** the bank honors Reg CC rules while mitigating counterfeit check fraud on non-qualifying channels.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Next-Day Availability for State/Local Government and Official Bank Checks
+
+  Scenario: Qualifying Cashier's, Certified, or Teller's check deposited in person
+    Given a cashier's check for $12,000.00 is payable to the account holder
+    And the check is deposited in person to a bank employee on Business Day T
+    And any bank-required special deposit slip is present
+    When the hold engine evaluates the deposit
+    Then the engine shall grant next-business-day availability (T+1) for the full $12,000.00
+
+  Scenario: Qualifying State or Local Government check deposited in the same state
+    Given a State of Texas check for $2,100.00 is payable to the account holder
+    And the deposit is made in person to a bank employee at a branch located in Texas on Business Day T
+    And any bank-required special deposit slip is present
+    When the hold engine evaluates the deposit
+    Then the engine shall grant next-business-day availability (T+1) for the full $2,100.00
+
+  Scenario: Cashier's check deposited via Mobile Remote Deposit Capture (mRDC)
+    Given a cashier's check for $4,500.00 is payable to the account holder
+    And the check is submitted via Mobile RDC on Business Day T
+    When the hold engine evaluates the deposit
+    Then the engine shall NOT apply mandatory T+1 availability because the deposit was not made in person to a bank employee
+    And the engine shall route the item to standard non-exempt check availability rules
+
+```
+
+---
+
+#### Story 4: On-Us Checks Deposited at Same-State Branches (12 CFR § 229.10(c)(1)(vi))
+
+**As a** Deposit Product Manager
+
+**I want** checks drawn on our own bank ("on-us" checks) to receive next-business-day availability when deposited at a branch or proprietary ATM in the same state as the paying branch
+
+**So that** internal clearing items adhere to 12 CFR § 229.10(c)(1)(vi).
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Next-Day Availability for On-Us Checks
+
+  Scenario: On-us check deposited in the same state as the branch holding the payer account
+    Given a check for $6,000.00 is drawn on our bank at a branch in Texas
+    And the check is deposited into a customer's account at a Texas branch or proprietary ATM on Business Day T
+    When the hold engine evaluates the deposit
+    Then the engine shall grant next-business-day availability (T+1) for the full $6,000.00
+
+  Scenario: On-us check deposited out-of-state from the payer branch
+    Given a check for $6,000.00 is drawn on our bank at a branch in Texas
+    And the check is deposited at a branch in California on Business Day T
+    When the hold engine evaluates the deposit
+    Then the engine shall NOT apply mandatory T+1 availability under 229.10(c)(1)(vi)
+    And the item shall be evaluated under standard local check schedules
+
+```
+
+---
+
+#### Story 5: Minimum Next-Day Availability Floor for Non-Exempt Checks (12 CFR § 229.10(c)(1)(vii))
+
+**As a** Compliance Officer
+
+**I want** the first $275 (current inflation-adjusted statutory amount) of the aggregate daily deposit of non-exempt checks to be made available on the next business day
+
+**So that** customers receive their mandatory minimum liquidity across single or multiple check deposits made on the same banking day.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Daily Aggregate Minimum Next-Day Availability ($275 Rule)
+
+  Scenario: Single non-exempt check deposit exceeding $275
+    Given a customer has made no prior check deposits on Business Day T
+    When the customer deposits a personal check for $1,000.00 on Business Day T
+    Then the hold engine shall make $275.00 available on Business Day T+1
+    And the remaining $725.00 shall be held according to standard local check availability rules
+
+  Scenario: Multiple non-exempt check deposits on the same business day
+    Given a customer deposited a personal check for $150.00 earlier on Business Day T (all $150.00 scheduled for T+1)
+    When the customer deposits a second personal check for $400.00 later on Business Day T
+    Then the hold engine shall calculate the remaining daily T+1 allowance as $125.00 ($275.00 - $150.00)
+    And make $125.00 of the second deposit available on Business Day T+1
+    And hold the remaining $275.00 of the second deposit under standard local check availability rules
+
+  Scenario: Single non-exempt check deposit below $275
+    Given a customer has made no prior check deposits on Business Day T
+    When the customer deposits a personal check for $180.00 on Business Day T
+    Then the hold engine shall make the full $180.00 available on Business Day T+1
+
+```
+
+---
+
+#### Story 6: End-of-Day Cutoff and Exception Hold Override Guardrails (12 CFR § 229.10 & § 229.13)
+
+**As a** Core Banking Systems Architect
+
+**I want** the hold engine to roll deposits received after the channel cutoff time to the next business day and allow § 229.13 exception holds (e.g., New Account, Large Deposit, Reasonable Cause to Doubt Collectibility) to override § 229.10 next-day rules when triggered
+
+**So that** business-day calculations and risk-based holds remain compliant across all deposit channels.
+
+**Acceptance Criteria:**
+
+```gherkin
+Feature: Cutoff Time Rollover and Exception Hold Precedence
+
+  Scenario: Qualifying next-day deposit submitted after branch/ATM cutoff time
+    Given the branch cutoff time is 4:00 PM local time
+    When a customer deposits a $1,000.00 U.S. Treasury check at 4:15 PM on Monday (Business Day T)
+    Then the hold engine shall treat the deposit as received on Tuesday (Business Day T+1)
+    And make the funds available on Wednesday (Business Day T+2)
+
+  Scenario: Exception hold overrides next-day availability on a Large Deposit
+    Given a cashier's check for $15,000.00 meets all criteria for next-day availability under 229.10(c)(1)(v)
+    And the bank invokes a Large Deposit exception hold under 12 CFR 229.13(b) (threshold > $6,725)
+    When the hold engine evaluates the deposit
+    Then the engine shall grant T+1 availability for the first $6,725.00
+    And apply an extended exception hold to the remaining $8,275.00 with an automated hold notice trigger
+
+```
+
+---
+
+### Key Implementation Notes for Engineering & QA
+
+* **Parameterize Thresholds:** Store the **$275** minimum availability floor (229.10(c)(1)(vii)) and **$6,725** large deposit/new account threshold (229.13) in a date-effective configuration table rather than hardcoding them, as the Federal Reserve adjusts these figures for inflation every five years.
+* **Channel & Deposit Slip Metadata:** Ensure the intake payload from Teller, ATM, and RDC channels explicitly passes `channel_type`, `in_person_employee_flag`, `deposit_branch_state`, `payer_routing_number`, and `special_deposit_slip_flag` so the rule engine can deterministically evaluate § 229.10(c)(1)(i)–(vi).
